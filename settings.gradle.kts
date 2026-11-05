@@ -32,4 +32,11 @@ plugins {
 
 rootProject.name = "com.pratclot.cafes"
 
-include(":app")
+include(
+  ":app",
+  ":core:model",
+  ":core:data",
+  ":core:location",
+  ":core:designsystem",
+  ":feature:cafe-log",
+)

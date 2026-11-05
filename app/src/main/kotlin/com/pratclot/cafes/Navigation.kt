@@ -1,14 +1,10 @@
 package com.pratclot.cafes
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
-import com.pratclot.cafes.ui.main.MainScreen
+import com.pratclot.cafes.ui.main.CafeLogScreen
 
 @Composable
 fun MainNavigation() {
@@ -20,7 +16,7 @@ fun MainNavigation() {
     entryProvider =
       entryProvider {
         entry<Main> {
-          MainScreen(onItemClick = { navKey -> backStack.add(navKey) })
+          CafeLogScreen()
         }
       },
   )

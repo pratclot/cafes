@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml:2:13-83
+INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml:2:13-83
+	package
+		INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml
+	xmlns:android
+		ADDED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml:2:23-81
+uses-sdk
+INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml reason: use-sdk injection requested
+INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml
+INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml
+	android:targetSdkVersion
+		INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml
+	android:minSdkVersion
+		INJECTED from /home/chief/StudioProjects/cafes/feature/cafe-log/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest4052286958136535099.xml

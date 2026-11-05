@@ -11,6 +11,21 @@ An Android app for keeping a photo log of cafe visits. Take a picture, save the 
 - Swipe a visit left to archive it. Archived visits are available from the archive view and can be restored by swiping left there.
 - Keep visit records and photos in local app storage.
 
+## Project modules
+
+The Gradle project is split by responsibility:
+
+| Module | Responsibility |
+| --- | --- |
+| `:app` | Android application, manifest, startup activity, and navigation |
+| `:feature:cafe-log` | Cafe log screen and its presentation state |
+| `:core:data` | Local cafe log persistence |
+| `:core:location` | Location, address, and nearby cafe provider facades and implementations |
+| `:core:model` | Shared cafe visit, venue candidate, and position models |
+| `:core:designsystem` | Shared Compose theme and app theme resource |
+
+The cafe-log feature depends on the core modules and the app shell depends on the feature. Provider code and local storage stay behind their module boundaries, so they can evolve independently.
+
 ## Build and run
 
 Open the project directory in Android Studio and run the `app` configuration on an Android device or emulator. The project uses JDK 17, Android Gradle Plugin 9.0.1, and requires Android SDK 37 for compilation. The app supports Android 7.0 (API 24) and newer.
