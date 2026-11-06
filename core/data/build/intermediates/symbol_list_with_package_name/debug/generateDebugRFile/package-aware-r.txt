@@ -1,1 +1,0 @@
-com.pratclot.cafes.core.data

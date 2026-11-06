@@ -1,2 +1,0 @@
-com.pratclot.cafes.core.designsystem
-style Theme_ComPratclotCafes
