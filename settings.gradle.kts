@@ -13,7 +13,6 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
   repositories {
     google {
       content {
@@ -39,4 +38,5 @@ include(
   ":core:location",
   ":core:designsystem",
   ":feature:cafe-log",
+  ":webApp",
 )

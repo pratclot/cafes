@@ -4,6 +4,11 @@ plugins {
 }
 
 kotlin {
+  @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+  wasmJs {
+    browser()
+  }
+
   android {
     namespace = "com.pratclot.cafes.core.model"
     compileSdk = 37
