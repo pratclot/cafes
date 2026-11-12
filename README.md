@@ -21,10 +21,12 @@ The Gradle project is split by responsibility:
 | `:feature:cafe-log` | Cafe log screen and its presentation state |
 | `:core:data` | Local cafe log persistence |
 | `:core:location` | Location, address, and nearby cafe provider facades and implementations |
-| `:core:model` | Shared cafe visit, venue candidate, and position models |
+| `:core:model` | Kotlin Multiplatform module; platform-neutral cafe visit, venue candidate, and position models live in `commonMain` |
 | `:core:designsystem` | Shared Compose theme and app theme resource |
 
 The cafe-log feature depends on the core modules and the app shell depends on the feature. Provider code and local storage stay behind their module boundaries, so they can evolve independently.
+
+KMP is currently configured with an Android target only. The Android app, Compose screens, local persistence, and location providers remain Android-specific. No web target or web source set has been added.
 
 ## Build and run
 
@@ -48,7 +50,7 @@ The application ID is `com.pratclot.cafes`.
 
 Location is read through Google Play services' fused location provider while the app is in use. A readable address is obtained through Android's `Geocoder`. Nearby cafe suggestions come from OpenStreetMap via the Overpass API, using a European endpoint when the location is in Europe and a global endpoint otherwise.
 
-The location and cafe lookup implementations sit behind `LocationFacade`, `AddressLookupFacade`, and `NearbyCafeFacade` in `location/CafeLocationFacades.kt`. This keeps the UI independent of the current providers so they can be replaced later.
+The location and cafe lookup implementations sit behind `LocationFacade`, `AddressLookupFacade`, and `NearbyCafeFacade` in `core/location/src/main/kotlin/com/pratclot/cafes/location/CafeLocationFacades.kt`. This keeps the UI independent of the current providers so they can be replaced later.
 
 OpenStreetMap cafe coverage can vary by area. The app allows manual cafe selection when it cannot confidently choose a match. Internet access and location permission are needed for location and nearby lookup; photo logging itself is stored locally.
 

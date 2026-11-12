@@ -20,10 +20,10 @@ data class UserPosition(
 ) {
   fun distanceTo(latitude: Double, longitude: Double): Float {
     val earthRadiusMeters = 6_371_000.0
-    val latitudeDelta = Math.toRadians(latitude - this.latitude)
-    val longitudeDelta = Math.toRadians(longitude - this.longitude)
-    val startLatitude = Math.toRadians(this.latitude)
-    val endLatitude = Math.toRadians(latitude)
+    val latitudeDelta = (latitude - this.latitude) * kotlin.math.PI / 180.0
+    val longitudeDelta = (longitude - this.longitude) * kotlin.math.PI / 180.0
+    val startLatitude = this.latitude * kotlin.math.PI / 180.0
+    val endLatitude = latitude * kotlin.math.PI / 180.0
     val haversine = kotlin.math.sin(latitudeDelta / 2).let { it * it } +
       kotlin.math.cos(startLatitude) * kotlin.math.cos(endLatitude) *
       kotlin.math.sin(longitudeDelta / 2).let { it * it }

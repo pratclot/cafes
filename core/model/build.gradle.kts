@@ -1,17 +1,15 @@
 plugins {
-  alias(libs.plugins.android.library)
+  alias(libs.plugins.kotlin.multiplatform)
+  alias(libs.plugins.android.kotlin.multiplatform.library)
 }
 
-android {
-  namespace = "com.pratclot.cafes.core.model"
-  compileSdk = 37
-
-  defaultConfig { minSdk = 24 }
-
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+  android {
+    namespace = "com.pratclot.cafes.core.model"
+    compileSdk = 37
+    minSdk = 24
+    compilerOptions {
+      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
   }
 }
-
-kotlin { jvmToolchain(17) }
