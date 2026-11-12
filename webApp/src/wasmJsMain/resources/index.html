@@ -45,6 +45,36 @@
       <p class="loading-detail">Getting your cafe log ready…</p>
     </div>
     <div id="ComposeTarget" aria-busy="true"></div>
+    <script type="module">
+      const version = '0.10.20';
+      const runtime = import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/+esm`);
+      window.cafeFoodClassifierReady = Promise.all([
+        runtime,
+        fetch('food_labels.csv').then(response => response.text()),
+      ]).then(async ([vision, csv]) => {
+        const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/wasm`);
+        const classifier = await vision.ImageClassifier.createFromOptions(files, {
+          baseOptions: { modelAssetPath: 'food_v1.tflite' },
+          runningMode: 'IMAGE', maxResults: 5, scoreThreshold: 0.12,
+        });
+        const labels = new Map(csv.trim().split(/\r?\n/).slice(1).map(row => {
+          const [id, ...name] = row.split(','); return [Number(id), name.join(',')];
+        }));
+        window.cafeClassifyPhotos = async photos => {
+          const result = new Map();
+          for (const source of photos) {
+            const image = new Image(); image.src = source;
+            await image.decode();
+            const categories = classifier.classify(image).classifications[0]?.categories || [];
+            for (const category of categories) {
+              const name = labels.get(category.index);
+              if (name && category.index > 0 && (!result.has(name) || result.get(name) < category.score)) result.set(name, category.score);
+            }
+          }
+          return [...result].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, score]) => `${encodeURIComponent(name)}|${score}`).join('\n');
+        };
+      });
+    </script>
     <script type="application/javascript" src="webApp.js"></script>
   </body>
 </html>

@@ -10,7 +10,17 @@ data class CafeEntry(
   val latitude: Double?,
   val longitude: Double?,
   val photoPaths: List<String> = listOf(photoPath),
+  val manualTags: List<String> = emptyList(),
+  val autoTags: List<String> = emptyList(),
+  val taggingModelVersion: String? = null,
 )
+
+data class FoodLabel(val name: String, val confidence: Float)
+
+/** Platform boundary for local food-photo classification. */
+interface FoodTaggerFacade {
+  suspend fun classify(photoPaths: List<String>): List<FoodLabel>
+}
 
 data class UserPosition(
   val latitude: Double,

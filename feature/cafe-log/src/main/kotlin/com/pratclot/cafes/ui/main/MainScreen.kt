@@ -9,6 +9,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -37,6 +39,7 @@ import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.location.CafeLocationFacades
 import com.pratclot.cafes.location.hasLocationPermission
+import com.pratclot.cafes.recognition.AndroidFoodTaggerFacade
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
 import java.io.File
 import java.text.SimpleDateFormat
@@ -59,6 +62,7 @@ fun CafeLogScreen(modifier: Modifier = Modifier) {
   val lifecycleOwner = LocalLifecycleOwner.current
   val repository = remember { LocalCafeLogRepository(context) }
   val facades = remember(context) { CafeLocationFacades.create(context) }
+  val foodTagger = remember(context) { AndroidFoodTaggerFacade(context) }
   val coroutineScope = rememberCoroutineScope()
   var entries by remember { mutableStateOf(repository.load()) }
   var archivedEntries by remember { mutableStateOf(repository.loadArchived()) }
@@ -81,6 +85,30 @@ fun CafeLogScreen(modifier: Modifier = Modifier) {
   var searchingCafes by remember { mutableStateOf(false) }
   var cafeSearchError by remember { mutableStateOf<String?>(null) }
   var manualCafeName by remember { mutableStateOf("") }
+  var searchQuery by remember { mutableStateOf("") }
+  var taggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var failedTaggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var manualTagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
+  LaunchedEffect(entries, archivedEntries) {
+    val allEntries = entries + archivedEntries
+    val pending = allEntries.filter { it.photoPaths.isNotEmpty() && it.taggingModelVersion != AndroidFoodTaggerFacade.MODEL_VERSION && it.id !in taggingIds && it.id !in failedTaggingIds }
+    pending.forEach { entry ->
+      taggingIds = taggingIds + entry.id
+      try {
+        val labels = foodTagger.classify(entry.photoPaths).filter { it.confidence >= 0.22f }.map { it.name }
+        val updated = repository.update(entry.copy(autoTags = labels, taggingModelVersion = AndroidFoodTaggerFacade.MODEL_VERSION))
+        entries = updated.first
+        archivedEntries = updated.second
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (_: Exception) {
+        failedTaggingIds = failedTaggingIds + entry.id
+      } finally {
+        taggingIds = taggingIds - entry.id
+      }
+    }
+  }
 
   val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
     if (bitmap != null) pendingPhoto = bitmap
@@ -104,6 +132,7 @@ fun CafeLogScreen(modifier: Modifier = Modifier) {
           val updated = withContext(Dispatchers.IO) { repository.appendPhotos(entryId, savedPaths) }
           entries = updated.first
           archivedEntries = updated.second
+          failedTaggingIds = failedTaggingIds - entryId
         }
       }
     }
@@ -286,18 +315,43 @@ fun CafeLogScreen(modifier: Modifier = Modifier) {
       }
       Spacer(Modifier.height(12.dp))
       val visibleEntries = if (showingArchive) archivedEntries else entries
-      if (visibleEntries.isEmpty()) {
+      OutlinedTextField(
+        value = searchQuery,
+        onValueChange = { searchQuery = it },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Search cafes and dishes") },
+        placeholder = { Text("Try “Benedict”") },
+        singleLine = true,
+      )
+      Spacer(Modifier.height(10.dp))
+      val query = searchQuery.trim().lowercase()
+      val filteredEntries = visibleEntries.filter { entry ->
+        query.isBlank() || listOf(entry.venue, entry.address).any { it.contains(query, ignoreCase = true) } || (entry.manualTags + entry.autoTags).any { it.contains(query, ignoreCase = true) }
+      }
+      if (filteredEntries.isEmpty()) {
         if (showingArchive) {
           Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("No archived visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Text("Visits you archive will be kept here.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
           }
-        } else EmptyLog(Modifier.weight(1f), onCapture = requestCapture)
+        } else if (visibleEntries.isEmpty() && query.isBlank()) EmptyLog(Modifier.weight(1f), onCapture = requestCapture)
+        else Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+          Text("No matching visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+          Text("Search by cafe name or a dish in your photos.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
       } else {
         LazyColumn(contentPadding = PaddingValues(bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-          items(visibleEntries, key = { it.id }) { entry ->
-            CafeEntryCard(entry, archived = showingArchive, onAddPhotos = { target ->
+          items(filteredEntries, key = { it.id }) { entry ->
+            CafeEntryCard(entry, archived = showingArchive, tagging = entry.id in taggingIds, tagDraft = manualTagDrafts[entry.id].orEmpty(), onTagDraft = { draft -> manualTagDrafts = manualTagDrafts + (entry.id to draft) }, onTagClick = { tag -> searchQuery = tag }, onAddTag = {
+              val tag = manualTagDrafts[entry.id].orEmpty().trim()
+              if (tag.isNotEmpty()) {
+                val updated = repository.update(entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase)))
+                entries = updated.first
+                archivedEntries = updated.second
+                manualTagDrafts = manualTagDrafts - entry.id
+              }
+            }, onAddPhotos = { target ->
               photoPickerEntryId = target.id
               photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }, onAction = {
@@ -485,7 +539,7 @@ private fun EmptyLog(modifier: Modifier, onCapture: () -> Unit) {
 }
 
 @Composable
-private fun CafeEntryCard(entry: CafeEntry, archived: Boolean, onAddPhotos: (CafeEntry) -> Unit, onAction: () -> Unit) {
+private fun CafeEntryCard(entry: CafeEntry, archived: Boolean, tagging: Boolean, tagDraft: String, onTagDraft: (String) -> Unit, onTagClick: (String) -> Unit, onAddTag: () -> Unit, onAddPhotos: (CafeEntry) -> Unit, onAction: () -> Unit) {
   val photos = remember(entry.photoPath, entry.photoPaths) {
     entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
   }
@@ -570,6 +624,29 @@ private fun CafeEntryCard(entry: CafeEntry, archived: Boolean, onAddPhotos: (Caf
             if (entry.address.isNotBlank()) Text(entry.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(5.dp))
             Text(SimpleDateFormat("EEE, d MMM · HH:mm", Locale.getDefault()).format(Date(entry.visitedAt)), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (tagging) {
+              Spacer(Modifier.height(8.dp))
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(7.dp))
+                Text("Identifying dishes on this device…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+            }
+            val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
+            if (tags.isNotEmpty()) {
+              Spacer(Modifier.height(7.dp))
+              Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                tags.forEach { tag ->
+                  SuggestionChip(onClick = { onTagClick(tag) }, label = { Text(tag) })
+                }
+              }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              OutlinedTextField(value = tagDraft, onValueChange = onTagDraft, modifier = Modifier.weight(1f), label = { Text("Add a dish tag") }, singleLine = true)
+              Spacer(Modifier.width(8.dp))
+              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text("Add") }
+            }
           }
         }
         if (swipeProgress > 0f) {

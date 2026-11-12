@@ -20,6 +20,13 @@ internal fun browserFormatDate(timestamp: Double): String = js(
   "new Date(timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })",
 )
 
+internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit): Unit = js(
+  """
+  window.cafeFoodClassifierReady.then(() => window.cafeClassifyPhotos(photos.split('\\n').map(decodeURIComponent)))
+    .then(onComplete).catch(() => onComplete('!ERROR'))
+  """,
+)
+
 internal fun browserRequestPhotos(onComplete: (String) -> Unit): Unit = js(
   """
   {

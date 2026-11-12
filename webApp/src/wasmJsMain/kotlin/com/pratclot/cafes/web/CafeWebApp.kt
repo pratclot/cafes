@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -29,6 +32,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,6 +75,7 @@ private const val ARCHIVED_KEY = "cafe-log-archived"
 internal fun CafeWebApp() {
   val locationFacade = remember { BrowserGeolocationFacade() }
   val nearbyCafeFacade = remember { OpenStreetMapBrowserCafeFacade() }
+  val foodTagger = remember { MediaPipeFoodTaggerFacade() }
   var entries by remember { mutableStateOf(readEntries(ACTIVE_KEY)) }
   var archived by remember { mutableStateOf(readEntries(ARCHIVED_KEY)) }
   var showArchive by remember { mutableStateOf(false) }
@@ -81,12 +86,32 @@ internal fun CafeWebApp() {
   var manualCafe by remember { mutableStateOf("") }
   var selectedCafe by remember { mutableStateOf<CafeCandidate?>(null) }
   var storageWarning by remember { mutableStateOf<String?>(null) }
+  var searchQuery by remember { mutableStateOf("") }
+  var taggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var failedTaggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var tagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
   fun persist() {
     val activeSaved = browserStorageWrite(ACTIVE_KEY, writeEntries(entries))
     val archivedSaved = browserStorageWrite(ARCHIVED_KEY, writeEntries(archived))
     storageWarning = if (activeSaved && archivedSaved) null else
       "Browser storage is full or unavailable. This change may not survive a page reload."
+  }
+
+  LaunchedEffect(entries, archived) {
+    (entries + archived).filter { it.photoPaths.isNotEmpty() && it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION && it.id !in taggingIds && it.id !in failedTaggingIds }.forEach { entry ->
+      taggingIds = taggingIds + entry.id
+      try {
+        val tags = foodTagger.classify(entry.photoPaths).filter { it.confidence >= 0.22f }.map { it.name }
+        entries = entries.map { if (it.id == entry.id) it.copy(autoTags = tags, taggingModelVersion = BROWSER_FOOD_MODEL_VERSION) else it }
+        archived = archived.map { if (it.id == entry.id) it.copy(autoTags = tags, taggingModelVersion = BROWSER_FOOD_MODEL_VERSION) else it }
+        persist()
+      } catch (_: Exception) {
+        failedTaggingIds = failedTaggingIds + entry.id
+      } finally {
+        taggingIds = taggingIds - entry.id
+      }
+    }
   }
 
   fun findLocation() {
@@ -123,11 +148,12 @@ internal fun CafeWebApp() {
       val photos = decodePhotoSelection(encoded)
       if (photos.isNotEmpty()) {
         entries = entries.map { entry ->
-          if (entry.id == id) entry.copy(photoPaths = entry.photoPaths + photos) else entry
+          if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
         }
         archived = archived.map { entry ->
-          if (entry.id == id) entry.copy(photoPaths = entry.photoPaths + photos) else entry
+          if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
         }
+        failedTaggingIds = failedTaggingIds - id
         persist()
       }
     }
@@ -224,9 +250,22 @@ internal fun CafeWebApp() {
         }
 
         val shown = if (showArchive) archived else entries
-        if (shown.isEmpty()) {
+        OutlinedTextField(
+          value = searchQuery,
+          onValueChange = { searchQuery = it },
+          modifier = Modifier.fillMaxWidth(),
+          label = { Text("Search cafes and dishes") },
+          placeholder = { Text("Try “Benedict”") },
+          singleLine = true,
+        )
+        Spacer(Modifier.height(10.dp))
+        val query = searchQuery.trim()
+        val matching = shown.filter { entry ->
+          query.isBlank() || entry.venue.contains(query, true) || entry.address.contains(query, true) || (entry.manualTags + entry.autoTags).any { it.contains(query, true) }
+        }
+        if (matching.isEmpty()) {
           Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            Text(if (showArchive) "Nothing archived yet." else "Your cafe visits will show up here.")
+            Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
           }
         } else if (desktopLayout) {
           LazyVerticalGrid(
@@ -235,11 +274,25 @@ internal fun CafeWebApp() {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
           ) {
-            gridItems(shown, key = { it.id }) { entry ->
+            gridItems(matching, key = { it.id }) { entry ->
               VisitCard(
                 entry = entry,
                 archived = showArchive,
                 showArchiveButton = desktopLayout,
+                tagging = entry.id in taggingIds,
+                tagDraft = tagDrafts[entry.id].orEmpty(),
+                onTagClick = { searchQuery = it },
+                onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
+                onAddTag = {
+                  val tag = tagDrafts[entry.id].orEmpty().trim()
+                  if (tag.isNotEmpty()) {
+                    val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
+                    entries = entries.map { if (it.id == entry.id) updated else it }
+                    archived = archived.map { if (it.id == entry.id) updated else it }
+                    tagDrafts = tagDrafts - entry.id
+                    persist()
+                  }
+                },
                 onPhotos = { addPhotosToVisit(entry.id) },
                 onArchive = {
                   entries = entries.filterNot { it.id == entry.id }
@@ -259,11 +312,25 @@ internal fun CafeWebApp() {
             modifier = Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
           ) {
-            items(shown, key = { it.id }) { entry ->
+            items(matching, key = { it.id }) { entry ->
               VisitCard(
                 entry = entry,
                 archived = showArchive,
                 showArchiveButton = desktopLayout,
+                tagging = entry.id in taggingIds,
+                tagDraft = tagDrafts[entry.id].orEmpty(),
+                onTagClick = { searchQuery = it },
+                onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
+                onAddTag = {
+                  val tag = tagDrafts[entry.id].orEmpty().trim()
+                  if (tag.isNotEmpty()) {
+                    val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
+                    entries = entries.map { if (it.id == entry.id) updated else it }
+                    archived = archived.map { if (it.id == entry.id) updated else it }
+                    tagDrafts = tagDrafts - entry.id
+                    persist()
+                  }
+                },
                 onPhotos = { addPhotosToVisit(entry.id) },
                 onArchive = {
                   entries = entries.filterNot { it.id == entry.id }
@@ -292,6 +359,11 @@ private fun VisitCard(
   entry: CafeEntry,
   archived: Boolean,
   showArchiveButton: Boolean,
+  tagging: Boolean,
+  tagDraft: String,
+  onTagClick: (String) -> Unit,
+  onTagDraft: (String) -> Unit,
+  onAddTag: () -> Unit,
   onPhotos: () -> Unit,
   onArchive: () -> Unit,
   onRestore: () -> Unit,
@@ -382,6 +454,33 @@ private fun VisitCard(
               }
               Text("${photoIndex + 1}/${photos.size}", style = MaterialTheme.typography.labelMedium)
             }
+            if (tagging) {
+              Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                CircularProgressIndicator(Modifier.height(16.dp), strokeWidth = 2.dp)
+                Text("Identifying dishes on this device…", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp), color = Color(0xFF6E6258))
+              }
+            }
+            val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
+            if (tags.isNotEmpty()) {
+              Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(rememberScrollState()),
+              ) {
+                tags.forEach { tag ->
+                  Surface(
+                    modifier = Modifier.clip(RoundedCornerShape(24.dp)).clickable { onTagClick(tag) },
+                    color = Color(0xFFF2E8DE),
+                    shape = RoundedCornerShape(24.dp),
+                  ) {
+                    Text(tag, color = Color(0xFF8D5E3C), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                  }
+                }
+              }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+              OutlinedTextField(tagDraft, onTagDraft, modifier = Modifier.weight(1f), label = { Text("Add a dish tag") }, singleLine = true)
+              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text("Add") }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
               OutlinedButton(onClick = onPhotos) { Text("Add photos") }
               if (showArchiveButton) {
@@ -427,7 +526,7 @@ private fun readEntries(key: String): List<CafeEntry> =
 
 private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().mapNotNull { line ->
   val fields = line.split('|')
-  if (fields.size != 8) return@mapNotNull null
+  if (fields.size < 8) return@mapNotNull null
   runCatching {
     val photos = fields[7].takeIf(String::isNotEmpty)?.split(',').orEmpty().map(::decodeBrowserValue)
     val primary = decodeBrowserValue(fields[1])
@@ -440,6 +539,9 @@ private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().ma
       latitude = decodeBrowserValue(fields[5]).toDoubleOrNull(),
       longitude = decodeBrowserValue(fields[6]).toDoubleOrNull(),
       photoPaths = photos.ifEmpty { listOf(primary) },
+      manualTags = fields.getOrNull(8)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
+      autoTags = fields.getOrNull(9)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
+      taggingModelVersion = fields.getOrNull(10)?.let(::decodeBrowserValue)?.takeIf(String::isNotBlank),
     )
   }.getOrNull()
 }.toList()
@@ -448,6 +550,7 @@ private fun writeEntries(entries: List<CafeEntry>): String = entries.joinToStrin
   listOf(
     entry.id, entry.photoPath, entry.venue, entry.address, entry.visitedAt.toString(),
     entry.latitude?.toString().orEmpty(), entry.longitude?.toString().orEmpty(), entry.photoPaths.joinToString(","),
+    entry.manualTags.joinToString(","), entry.autoTags.joinToString(","), entry.taggingModelVersion.orEmpty(),
   ).joinToString("|") { encodeBrowserValue(it) }
 }
 

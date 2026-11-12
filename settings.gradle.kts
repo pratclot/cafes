@@ -36,6 +36,7 @@ include(
   ":core:model",
   ":core:data",
   ":core:location",
+  ":core:recognition",
   ":core:designsystem",
   ":feature:cafe-log",
   ":webApp",

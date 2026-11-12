@@ -30,6 +30,7 @@ dependencies {
   implementation(project(":core:model"))
   implementation(project(":core:data"))
   implementation(project(":core:location"))
+  implementation(project(":core:recognition"))
   implementation(project(":core:designsystem"))
 
   implementation(libs.androidx.activity.compose)
