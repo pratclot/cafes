@@ -30,4 +30,4 @@ internal class MediaPipeFoodTaggerFacade : FoodTaggerFacade {
 
 }
 
-internal const val BROWSER_FOOD_MODEL_VERSION = "google-aiy-food-v1"
+internal const val BROWSER_FOOD_MODEL_VERSION = "google-siglip-food-v1"

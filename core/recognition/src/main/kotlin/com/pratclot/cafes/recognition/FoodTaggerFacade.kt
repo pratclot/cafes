@@ -57,7 +57,7 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade {
       try {
         inputs = compiledModel.createInputBuffers()
         outputs = compiledModel.createOutputBuffers()
-        Bitmap.createBitmap(224, 224, Bitmap.Config.ARGB_8888).also { warmup ->
+        Bitmap.createBitmap(INPUT_SIZE, INPUT_SIZE, Bitmap.Config.ARGB_8888).also { warmup ->
           warmup.eraseColor(android.graphics.Color.BLACK)
           try { inferPixels(warmup) } finally { warmup.recycle() }
         }
@@ -70,27 +70,28 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade {
     fun infer(bitmap: Bitmap): List<FoodLabel> {
       val side = minOf(bitmap.width, bitmap.height)
       val square = Bitmap.createBitmap(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side)
-      val scaled = Bitmap.createScaledBitmap(square, 224, 224, true)
+      val scaled = Bitmap.createScaledBitmap(square, INPUT_SIZE, INPUT_SIZE, true)
       if (square !== bitmap) square.recycle()
       return try { inferPixels(scaled) } finally { scaled.recycle() }
     }
 
     private fun inferPixels(bitmap: Bitmap): List<FoodLabel> {
-      val pixels = IntArray(224 * 224)
-      bitmap.getPixels(pixels, 0, 224, 0, 0, 224, 224)
-      val input = FloatArray(pixels.size * 3)
+      val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+      bitmap.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+      val input = ByteArray(pixels.size * 3)
       pixels.forEachIndexed { index, pixel ->
         val offset = index * 3
-        input[offset] = android.graphics.Color.red(pixel) / 255f
-        input[offset + 1] = android.graphics.Color.green(pixel) / 255f
-        input[offset + 2] = android.graphics.Color.blue(pixel) / 255f
+        input[offset] = android.graphics.Color.red(pixel).toByte()
+        input[offset + 1] = android.graphics.Color.green(pixel).toByte()
+        input[offset + 2] = android.graphics.Color.blue(pixel).toByte()
       }
-      inputs[0].writeFloat(input)
+      inputs[0].writeInt8(input)
       compiledModel.run(inputs, outputs)
-      val scores = outputs[0].readFloat()
+      val scores = outputs[0].readInt8()
       return scores.indices.asSequence().filter { it > 0 }.mapNotNull { index ->
-        val name = labels[index]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        FoodLabel(name, scores[index])
+        val name = labels[index]?.takeIf { it.isNotBlank() && !it.startsWith('/') } ?: return@mapNotNull null
+        val score = (scores[index].toInt() and 0xFF) / 256f
+        FoodLabel(name, score)
       }.filter { it.confidence >= 0.12f }.sortedByDescending { it.confidence }.take(4).toList()
     }
 
@@ -104,6 +105,7 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade {
 
   companion object {
     const val MODEL_VERSION = "google-aiy-food-v1"
+    private const val INPUT_SIZE = 192
   }
 }
 
