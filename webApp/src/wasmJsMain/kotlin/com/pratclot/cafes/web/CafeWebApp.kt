@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -45,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,10 +63,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
+import com.pratclot.cafes.core.model.ClassificationRun
+import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlin.io.encoding.Base64
@@ -88,7 +96,7 @@ internal fun CafeWebApp() {
   var storageWarning by remember { mutableStateOf<String?>(null) }
   var searchQuery by remember { mutableStateOf("") }
   var taggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-  var failedTaggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var selectedDetailsEntryId by remember { mutableStateOf<String?>(null) }
   var tagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
   fun persist() {
@@ -98,18 +106,41 @@ internal fun CafeWebApp() {
       "Browser storage is full or unavailable. This change may not survive a page reload."
   }
 
-  LaunchedEffect(entries, archived) {
-    (entries + archived).filter { it.photoPaths.isNotEmpty() && it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION && it.id !in taggingIds && it.id !in failedTaggingIds }.forEach { entry ->
-      taggingIds = taggingIds + entry.id
-      try {
-        val tags = foodTagger.classify(entry.photoPaths).filter { it.confidence >= 0.22f }.map { it.name }
-        entries = entries.map { if (it.id == entry.id) it.copy(autoTags = tags, taggingModelVersion = BROWSER_FOOD_MODEL_VERSION) else it }
-        archived = archived.map { if (it.id == entry.id) it.copy(autoTags = tags, taggingModelVersion = BROWSER_FOOD_MODEL_VERSION) else it }
-        persist()
-      } catch (_: Exception) {
-        failedTaggingIds = failedTaggingIds + entry.id
-      } finally {
+  LaunchedEffect(Unit) {
+    snapshotFlow { entries + archived }.collect { currentEntries ->
+      currentEntries.filter { it.photoPaths.isNotEmpty() && it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION && it.id !in taggingIds }.forEach { entry ->
+        taggingIds = taggingIds + entry.id
+        val startedAt = browserNowMillis().toLong()
+        var labels = emptyList<FoodLabel>()
+        var errorMessage: String? = null
+        try {
+          labels = foodTagger.classify(entry.photoPaths)
+        } catch (cancelled: CancellationException) {
+          throw cancelled
+        } catch (error: Exception) {
+          errorMessage = error.message ?: error.toString()
+        }
+        val completedAt = browserNowMillis().toLong()
+        val run = ClassificationRun(
+          occurredAt = completedAt,
+          modelVersion = BROWSER_FOOD_MODEL_VERSION,
+          photoCount = entry.photoPaths.size,
+          durationMillis = completedAt - startedAt,
+          outcome = when { errorMessage != null -> "ERROR"; labels.isEmpty() -> "NO_DETECTIONS"; else -> "SUCCESS" },
+          labels = labels,
+          errorMessage = errorMessage,
+        )
+        val latestEntry = (entries + archived).firstOrNull { it.id == entry.id } ?: entry
+        val photosUnchanged = latestEntry.photoPaths == entry.photoPaths
+        val updatedEntry = latestEntry.copy(
+          autoTags = if (photosUnchanged && errorMessage == null) labels.filter { it.confidence >= 0.22f }.map { it.name } else latestEntry.autoTags,
+          taggingModelVersion = BROWSER_FOOD_MODEL_VERSION.takeIf { photosUnchanged },
+          classificationRuns = (listOf(run) + latestEntry.classificationRuns).take(50),
+        )
+        entries = entries.map { if (it.id == entry.id) updatedEntry else it }
+        archived = archived.map { if (it.id == entry.id) updatedEntry else it }
         taggingIds = taggingIds - entry.id
+        persist()
       }
     }
   }
@@ -153,7 +184,6 @@ internal fun CafeWebApp() {
         archived = archived.map { entry ->
           if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
         }
-        failedTaggingIds = failedTaggingIds - id
         persist()
       }
     }
@@ -165,6 +195,7 @@ internal fun CafeWebApp() {
     Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
       BoxWithConstraints(Modifier.fillMaxSize()) {
         val desktopLayout = maxWidth >= 900.dp
+        val detailsEntry = (entries + archived).firstOrNull { it.id == selectedDetailsEntryId }
         Column(
           Modifier.fillMaxSize()
             .widthIn(max = 1440.dp)
@@ -279,8 +310,10 @@ internal fun CafeWebApp() {
                 entry = entry,
                 archived = showArchive,
                 showArchiveButton = desktopLayout,
+                swipeEnabled = !desktopLayout,
                 tagging = entry.id in taggingIds,
                 tagDraft = tagDrafts[entry.id].orEmpty(),
+                onDetails = { selectedDetailsEntryId = entry.id },
                 onTagClick = { searchQuery = it },
                 onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
                 onAddTag = {
@@ -317,8 +350,10 @@ internal fun CafeWebApp() {
                 entry = entry,
                 archived = showArchive,
                 showArchiveButton = desktopLayout,
+                swipeEnabled = !desktopLayout,
                 tagging = entry.id in taggingIds,
                 tagDraft = tagDrafts[entry.id].orEmpty(),
+                onDetails = { selectedDetailsEntryId = entry.id },
                 onTagClick = { searchQuery = it },
                 onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
                 onAddTag = {
@@ -349,6 +384,39 @@ internal fun CafeWebApp() {
         storageWarning?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp)) }
         Text("Saved in this browser · no account or device sync yet", style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 8.dp))
         }
+        if (detailsEntry != null) {
+          val onRetryClassification = {
+            val updated = detailsEntry.copy(taggingModelVersion = null)
+            entries = entries.map { if (it.id == detailsEntry.id) updated else it }
+            archived = archived.map { if (it.id == detailsEntry.id) updated else it }
+            persist()
+          }
+          if (desktopLayout) {
+            Dialog(onDismissRequest = { selectedDetailsEntryId = null }) {
+              Surface(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp).heightIn(max = 820.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFFFFF8F0),
+              ) {
+                VisitDetailsContent(
+                  entry = detailsEntry,
+                  tagging = detailsEntry.id in taggingIds,
+                  onClose = { selectedDetailsEntryId = null },
+                  onRetryClassification = onRetryClassification,
+                  modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
+                  fullScreen = false,
+                )
+              }
+            }
+          } else {
+            VisitDetailsScreen(
+              entry = detailsEntry,
+              tagging = detailsEntry.id in taggingIds,
+              onClose = { selectedDetailsEntryId = null },
+              onRetryClassification = onRetryClassification,
+            )
+          }
+        }
       }
     }
   }
@@ -359,8 +427,10 @@ private fun VisitCard(
   entry: CafeEntry,
   archived: Boolean,
   showArchiveButton: Boolean,
+  swipeEnabled: Boolean,
   tagging: Boolean,
   tagDraft: String,
+  onDetails: () -> Unit,
   onTagClick: (String) -> Unit,
   onTagDraft: (String) -> Unit,
   onAddTag: () -> Unit,
@@ -404,47 +474,54 @@ private fun VisitCard(
   ) {
     Card(
       Modifier.fillMaxWidth()
-        .offset { IntOffset(offset.roundToInt(), 0) }
-        .pointerInput(entry.id, archived, cardWidthPx) {
-          detectHorizontalDragGestures(
-            onHorizontalDrag = { change, dragAmount ->
-              change.consume()
-              dragging = true
-              dragOffset = (dragOffset + dragAmount).coerceIn(-cardWidthPx, 0f)
-            },
-            onDragEnd = {
-              scope.launch {
-                swipeOffset.snapTo(dragOffset)
-                dragging = false
-                if (dragOffset < -cardWidthPx * 0.38f) {
-                  swipeOffset.animateTo(-cardWidthPx, tween(190))
-                  if (archived) onRestore() else onArchive()
-                } else {
-                  swipeOffset.animateTo(0f, tween(220))
-                }
-                dragOffset = 0f
-              }
-            },
-            onDragCancel = {
-              scope.launch {
-                swipeOffset.snapTo(dragOffset)
-                dragging = false
-                swipeOffset.animateTo(0f, tween(220))
-                dragOffset = 0f
-              }
-            },
-          )
-        },
+      .offset { IntOffset(offset.roundToInt(), 0) },
     ) {
       Box {
         Column {
-          Crossfade(
-            targetState = photos[photoIndex % photos.size],
-            animationSpec = tween(700),
-            label = "visit-photo",
-          ) { photo ->
-            BrowserPhoto(photo, Modifier.fillMaxWidth().height(220.dp))
+          Box(
+            Modifier.fillMaxWidth().height(220.dp).then(
+              if (swipeEnabled) Modifier.pointerInput(entry.id, archived, cardWidthPx) {
+                detectHorizontalDragGestures(
+                  onHorizontalDrag = { change, dragAmount ->
+                    change.consume()
+                    dragging = true
+                    dragOffset = (dragOffset + dragAmount).coerceIn(-cardWidthPx, 0f)
+                  },
+                  onDragEnd = {
+                    scope.launch {
+                      swipeOffset.snapTo(dragOffset)
+                      dragging = false
+                      if (dragOffset < -cardWidthPx * 0.38f) {
+                        swipeOffset.animateTo(-cardWidthPx, tween(190))
+                        if (archived) onRestore() else onArchive()
+                      } else {
+                        swipeOffset.animateTo(0f, tween(220))
+                      }
+                      dragOffset = 0f
+                    }
+                  },
+                  onDragCancel = {
+                    scope.launch {
+                      swipeOffset.snapTo(dragOffset)
+                      dragging = false
+                      swipeOffset.animateTo(0f, tween(220))
+                      dragOffset = 0f
+                    }
+                  },
+                )
+              } else Modifier,
+            ),
+          ) {
+            Crossfade(
+              targetState = photos[photoIndex % photos.size],
+              modifier = Modifier.fillMaxSize(),
+              animationSpec = tween(700),
+              label = "visit-photo",
+            ) { photo ->
+              BrowserPhoto(photo, Modifier.fillMaxSize())
+            }
           }
+          SelectionContainer {
           Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Column(Modifier.weight(1f)) {
@@ -452,7 +529,10 @@ private fun VisitCard(
                 if (entry.address.isNotBlank()) Text(entry.address, color = Color(0xFF6E6258))
                 Text(browserFormatDate(entry.visitedAt.toDouble()), style = MaterialTheme.typography.labelMedium, color = Color(0xFF81766D))
               }
-              Text("${photoIndex + 1}/${photos.size}", style = MaterialTheme.typography.labelMedium)
+              Column(horizontalAlignment = Alignment.End) {
+                Text("${photoIndex + 1}/${photos.size}", style = MaterialTheme.typography.labelMedium)
+                TextButton(onClick = onDetails) { Text("Details") }
+              }
             }
             if (tagging) {
               Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
@@ -489,6 +569,7 @@ private fun VisitCard(
               }
             }
           }
+          }
         }
         if (swipeProgress > 0f) {
           Box(
@@ -498,6 +579,98 @@ private fun VisitCard(
             Text(if (archived) "↶" else "▣", style = MaterialTheme.typography.displaySmall, color = Color.White.copy(alpha = swipeProgress))
           }
         }
+      }
+    }
+  }
+}
+
+@Composable
+private fun VisitDetailsScreen(
+  entry: CafeEntry,
+  tagging: Boolean,
+  onClose: () -> Unit,
+  onRetryClassification: () -> Unit,
+) {
+  Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
+    VisitDetailsContent(
+      entry = entry,
+      tagging = tagging,
+      onClose = onClose,
+      onRetryClassification = onRetryClassification,
+      modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+      fullScreen = true,
+    )
+  }
+}
+
+@Composable
+private fun VisitDetailsContent(
+  entry: CafeEntry,
+  tagging: Boolean,
+  onClose: () -> Unit,
+  onRetryClassification: () -> Unit,
+  modifier: Modifier,
+  fullScreen: Boolean,
+) {
+  val latitude = entry.latitude
+  val longitude = entry.longitude
+  SelectionContainer {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onClose) { Text(if (fullScreen) "← Back to visits" else "Close") }
+        Spacer(Modifier.weight(1f))
+        Text("${entry.photoPaths.size} photo${if (entry.photoPaths.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium)
+      }
+      Text(entry.venue, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+      if (entry.address.isNotBlank()) Text(entry.address, color = Color(0xFF6E6258))
+      Text("Visited ${browserFormatDate(entry.visitedAt.toDouble())}", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+      if (latitude != null && longitude != null) {
+        Text("Location: ${latitude.format(5)}, ${longitude.format(5)}", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+      }
+      val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
+      if (tags.isNotEmpty()) {
+        Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+        Text(tags.joinToString(" · "), color = Color(0xFF8D5E3C))
+      }
+      androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 8.dp))
+      Text("Automatic classification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+      Text("Current model: $BROWSER_FOOD_MODEL_VERSION", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+      if (tagging) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
+          Text("Classification running…", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+        }
+      }
+      Text("Run history (${entry.classificationRuns.size})", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+      if (entry.classificationRuns.isEmpty()) {
+        Text(
+          if (entry.taggingModelVersion == null) "No classification runs recorded yet."
+          else "This visit was classified before run history was saved.",
+          color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall,
+        )
+      } else {
+        entry.classificationRuns.forEach { run ->
+          val summary = when (run.outcome) {
+            "ERROR" -> "Processing error"
+            "NO_DETECTIONS" -> "Nothing detected"
+            else -> "Detected ${run.labels.size} label${if (run.labels.size == 1) "" else "s"}"
+          }
+          Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(browserFormatDate(run.occurredAt.toDouble()), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            Text(
+              "$summary · ${run.photoCount} photo${if (run.photoCount == 1) "" else "s"} · ${run.durationMillis} ms · ${run.modelVersion}",
+              color = if (run.outcome == "ERROR") Color(0xFFB3261E) else Color(0xFF6E6258),
+              style = MaterialTheme.typography.bodySmall,
+            )
+            if (run.labels.isNotEmpty()) {
+              Text(run.labels.joinToString(" · ") { "${it.name} (${(it.confidence * 100).toInt()}%)" }, color = Color(0xFF8D5E3C), style = MaterialTheme.typography.bodySmall)
+            }
+            run.errorMessage?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.bodySmall) }
+          }
+        }
+      }
+      OutlinedButton(onClick = onRetryClassification, enabled = !tagging, modifier = Modifier.padding(top = 8.dp)) {
+        Text(if (tagging) "Classification running…" else "Run classification again")
       }
     }
   }
@@ -542,6 +715,7 @@ private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().ma
       manualTags = fields.getOrNull(8)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
       autoTags = fields.getOrNull(9)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
       taggingModelVersion = fields.getOrNull(10)?.let(::decodeBrowserValue)?.takeIf(String::isNotBlank),
+      classificationRuns = parseClassificationRuns(fields.getOrNull(11)),
     )
   }.getOrNull()
 }.toList()
@@ -551,7 +725,41 @@ private fun writeEntries(entries: List<CafeEntry>): String = entries.joinToStrin
     entry.id, entry.photoPath, entry.venue, entry.address, entry.visitedAt.toString(),
     entry.latitude?.toString().orEmpty(), entry.longitude?.toString().orEmpty(), entry.photoPaths.joinToString(","),
     entry.manualTags.joinToString(","), entry.autoTags.joinToString(","), entry.taggingModelVersion.orEmpty(),
+    serializeClassificationRuns(entry.classificationRuns),
   ).joinToString("|") { encodeBrowserValue(it) }
+}
+
+private fun serializeClassificationRuns(runs: List<ClassificationRun>): String = runs.joinToString("\u001e") { run ->
+  listOf(
+    run.occurredAt.toString(), run.modelVersion, run.photoCount.toString(), run.durationMillis.toString(), run.outcome,
+    run.labels.joinToString("\u001d") { "${encodeBrowserValue(it.name)}\u001c${it.confidence}" },
+    run.errorMessage.orEmpty(),
+  ).joinToString("\u001f") { encodeBrowserValue(it) }
+}
+
+private fun parseClassificationRuns(encoded: String?): List<ClassificationRun> {
+  val data = encoded?.let(::decodeBrowserValue).orEmpty()
+  if (data.isEmpty()) return emptyList()
+  return data.split("\u001e").mapNotNull { rawRun ->
+    runCatching {
+      val fields = rawRun.split("\u001f").map(::decodeBrowserValue)
+      val labels = fields.getOrNull(5).orEmpty().split("\u001d").filter(String::isNotBlank).mapNotNull { rawLabel ->
+        val tagFields = rawLabel.split("\u001c")
+        val name = tagFields.firstOrNull()?.let(::decodeBrowserValue).orEmpty()
+        val confidence = tagFields.getOrNull(1)?.toFloatOrNull() ?: return@mapNotNull null
+        FoodLabel(name, confidence)
+      }
+      ClassificationRun(
+        occurredAt = fields[0].toLong(),
+        modelVersion = fields[1],
+        photoCount = fields[2].toInt(),
+        durationMillis = fields[3].toLong(),
+        outcome = fields[4],
+        labels = labels,
+        errorMessage = fields.getOrNull(6)?.takeIf(String::isNotBlank),
+      )
+    }.getOrNull()
+  }
 }
 
 private fun decodePhotoSelection(value: String): List<String> = value.lineSequence()

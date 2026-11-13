@@ -13,9 +13,21 @@ data class CafeEntry(
   val manualTags: List<String> = emptyList(),
   val autoTags: List<String> = emptyList(),
   val taggingModelVersion: String? = null,
+  val classificationRuns: List<ClassificationRun> = emptyList(),
 )
 
 data class FoodLabel(val name: String, val confidence: Float)
+
+data class ClassificationRun(
+  val occurredAt: Long,
+  val modelVersion: String,
+  val photoCount: Int,
+  val durationMillis: Long,
+  /** One of SUCCESS, NO_DETECTIONS, or ERROR. */
+  val outcome: String,
+  val labels: List<FoodLabel> = emptyList(),
+  val errorMessage: String? = null,
+)
 
 /** Platform boundary for local food-photo classification. */
 interface FoodTaggerFacade {

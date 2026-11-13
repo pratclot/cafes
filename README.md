@@ -8,12 +8,13 @@ A cafe visit photo log with an Android app and a browser app. Take a picture, sa
 - Show the device's current location while the app is open.
 - Find nearby cafes using OpenStreetMap data. The app selects a nearby cafe automatically when the location fix and candidate results are unambiguous; otherwise, the user can choose a result or enter a name.
 - Add more photos to a visit from the system photo picker. Cards loop through the visit's photos with a fade transition.
-- Swipe a visit left to archive it. Archived visits are available from the archive view and can be restored by swiping left there.
+- Archive and restore visits. Android cards can be swiped; the web app uses photo-area swipes on mobile and explicit archive controls on desktop.
 - Search visits by cafe, address, manually added dish tags, or automatically recognized dishes in photos.
 - Classify food photos on-device and show a per-visit processing indicator while dish tags are being generated. A stored model version lets a future model update trigger reclassification.
+- Open visit details to review classification history, including timestamps, model version, elapsed time, detected labels and confidence, no-detection outcomes, processing errors, and a retry action. Web details open in a desktop dialog or a full-screen mobile view.
 - Keep visit records and photos in local app storage.
 - Use the web app in a modern browser, with geolocation, nearby OpenStreetMap lookup, photo selection/camera capture where supported, and browser-local visit storage.
-- Adapt the web layout to mobile and desktop: mobile uses a single-column swipe-to-archive log, while desktop uses a multi-column card grid and visible archive controls.
+- Adapt the web layout to mobile and desktop: mobile uses a single-column log with swipe-to-archive on photos, while desktop uses a multi-column card grid and visible archive controls. Card text can be selected.
 
 ## Project modules
 
