@@ -22,8 +22,10 @@ internal fun browserFormatDate(timestamp: Double): String = js(
 
 internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit): Unit = js(
   """
-  window.cafeFoodClassifierReady.then(() => window.cafeClassifyPhotos(photos.split('\\n').map(decodeURIComponent)))
-    .then(onComplete).catch(() => onComplete('!ERROR'))
+  Promise.resolve()
+    .then(() => window.cafeClassifyPhotos(photos.split('\n').filter(Boolean).map(decodeURIComponent)))
+    .then(onComplete)
+    .catch((error) => onComplete('!ERROR|' + encodeURIComponent((error && error.message) ? error.message : String(error))))
   """,
 )
 
@@ -54,7 +56,7 @@ internal fun browserRequestPhotos(onComplete: (String) -> Unit): Unit = js(
         image.src = url;
       });
       const images = (await Promise.all(files.map(readImage))).filter(Boolean);
-      onComplete(images.join('\\n'));
+      onComplete(images.join('\n'));
     };
     input.click();
   }
@@ -111,7 +113,7 @@ internal fun browserFindNearbyCafes(latitude: Double, longitude: Double, onResul
         ].map((field) => encodeURIComponent(field)).join('|');
         return { row, distance: distance(point.lat, point.lon) };
       }).filter(Boolean).sort((a, b) => a.distance - b.distance);
-      onResult(values.map((value) => value.row).join('\\n'));
+      onResult(values.map((value) => value.row).join('\n'));
     }).catch(() => onResult('!ERROR'));
   }
   """,

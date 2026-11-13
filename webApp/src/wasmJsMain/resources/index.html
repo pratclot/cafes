@@ -45,35 +45,115 @@
       <p class="loading-detail">Getting your cafe log ready…</p>
     </div>
     <div id="ComposeTarget" aria-busy="true"></div>
-    <script type="module">
-      const version = '0.10.20';
-      const runtime = import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/+esm`);
-      window.cafeFoodClassifierReady = Promise.all([
-        runtime,
-        fetch('food_labels.csv').then(response => response.text()),
-      ]).then(async ([vision, csv]) => {
-        const files = await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/wasm`);
-        const classifier = await vision.ImageClassifier.createFromOptions(files, {
-          baseOptions: { modelAssetPath: 'food_v1.tflite' },
-          runningMode: 'IMAGE', maxResults: 5, scoreThreshold: 0.12,
-        });
-        const labels = new Map(csv.trim().split(/\r?\n/).slice(1).map(row => {
-          const [id, ...name] = row.split(','); return [Number(id), name.join(',')];
-        }));
-        window.cafeClassifyPhotos = async photos => {
-          const result = new Map();
-          for (const source of photos) {
-            const image = new Image(); image.src = source;
-            await image.decode();
-            const categories = classifier.classify(image).classifications[0]?.categories || [];
-            for (const category of categories) {
-              const name = labels.get(category.index);
-              if (name && category.index > 0 && (!result.has(name) || result.get(name) < category.score)) result.set(name, category.score);
+    <script>
+      (() => {
+        const version = '0.10.20';
+        const baseUrl = new URL('.', window.location.href).href;
+        let classifierPromise = null;
+
+        async function loadVisionModule() {
+          const urls = [
+            `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/vision_bundle.mjs`,
+            `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/+esm`,
+          ];
+          let lastError = null;
+          for (const url of urls) {
+            try {
+              const mod = await import(url);
+              const resolved = mod?.FilesetResolver ? mod : mod?.default;
+              if (resolved?.FilesetResolver && resolved?.ImageClassifier) return resolved;
+            } catch (err) {
+              lastError = err;
             }
           }
-          return [...result].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, score]) => `${encodeURIComponent(name)}|${score}`).join('\n');
+          throw lastError || new Error('MediaPipe Tasks Vision module could not be imported.');
+        }
+
+        function getFoodClassifier() {
+          if (!classifierPromise) {
+            classifierPromise = (async () => {
+              const [vision, csvResponse] = await Promise.all([
+                loadVisionModule(),
+                fetch(new URL('food_labels.csv', baseUrl)),
+              ]);
+              if (!csvResponse.ok) {
+                throw new Error(`food_labels.csv HTTP ${csvResponse.status}`);
+              }
+              const csv = await csvResponse.text();
+              const files = await vision.FilesetResolver.forVisionTasks(
+                `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${version}/wasm`
+              );
+              const modelUrl = new URL('food_v1.tflite', baseUrl).href;
+              let classifier;
+              try {
+                classifier = await vision.ImageClassifier.createFromOptions(files, {
+                  baseOptions: { modelAssetPath: modelUrl, delegate: 'CPU' },
+                  runningMode: 'IMAGE',
+                  maxResults: 5,
+                  scoreThreshold: 0.12,
+                });
+              } catch (_) {
+                const modelResponse = await fetch(modelUrl);
+                if (!modelResponse.ok) {
+                  throw new Error(`food_v1.tflite HTTP ${modelResponse.status}`);
+                }
+                const modelBytes = new Uint8Array(await modelResponse.arrayBuffer());
+                classifier = await vision.ImageClassifier.createFromOptions(files, {
+                  baseOptions: { modelAssetBuffer: modelBytes, delegate: 'CPU' },
+                  runningMode: 'IMAGE',
+                  maxResults: 5,
+                  scoreThreshold: 0.12,
+                });
+              }
+              const labels = new Map(
+                csv.trim().split(/\r?\n/).slice(1).map(row => {
+                  const [id, ...name] = row.split(',');
+                  const cleanName = name.join(',').trim().replace(/^"+|"+$/g, '');
+                  return [Number(id), cleanName];
+                })
+              );
+              return { classifier, labels };
+            })().catch(err => {
+              classifierPromise = null;
+              throw err;
+            });
+          }
+          return classifierPromise;
+        }
+
+        window.cafeClassifyPhotos = async photos => {
+          const { classifier, labels } = await getFoodClassifier();
+          const result = new Map();
+          for (const source of photos) {
+            if (!source) continue;
+            const image = new Image();
+            image.src = source;
+            await image.decode();
+            const side = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
+            const canvas = document.createElement('canvas');
+            canvas.width = 224;
+            canvas.height = 224;
+            const sx = Math.max(0, Math.floor(((image.naturalWidth || image.width) - side) / 2));
+            const sy = Math.max(0, Math.floor(((image.naturalHeight || image.height) - side) / 2));
+            canvas.getContext('2d').drawImage(image, sx, sy, side, side, 0, 0, 224, 224);
+            const categories = classifier.classify(canvas).classifications[0]?.categories || [];
+            for (const category of categories) {
+              const name = labels.get(category.index) || category.displayName || category.categoryName;
+              if (name && category.index > 0 && name !== '__background__' && !name.startsWith('/') && (!result.has(name) || result.get(name) < category.score)) {
+                result.set(name, category.score);
+              }
+            }
+          }
+          return [...result]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([name, score]) => `${encodeURIComponent(name)}|${score}`)
+            .join('\n');
         };
-      });
+
+        window.cafeFoodClassifierReady = getFoodClassifier();
+        window.cafeFoodClassifierReady.catch(() => {});
+      })();
     </script>
     <script type="application/javascript" src="webApp.js"></script>
   </body>

@@ -96,6 +96,7 @@ internal fun CafeWebApp() {
   var storageWarning by remember { mutableStateOf<String?>(null) }
   var searchQuery by remember { mutableStateOf("") }
   var taggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  var sessionAttemptedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
   var selectedDetailsEntryId by remember { mutableStateOf<String?>(null) }
   var tagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
@@ -108,8 +109,14 @@ internal fun CafeWebApp() {
 
   LaunchedEffect(Unit) {
     snapshotFlow { entries + archived }.collect { currentEntries ->
-      currentEntries.filter { it.photoPaths.isNotEmpty() && it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION && it.id !in taggingIds }.forEach { entry ->
+      currentEntries.filter {
+        it.photoPaths.isNotEmpty() &&
+          (it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION || it.classificationRuns.firstOrNull()?.outcome == "ERROR") &&
+          it.id !in taggingIds &&
+          it.id !in sessionAttemptedIds
+      }.forEach { entry ->
         taggingIds = taggingIds + entry.id
+        sessionAttemptedIds = sessionAttemptedIds + entry.id
         val startedAt = browserNowMillis().toLong()
         var labels = emptyList<FoodLabel>()
         var errorMessage: String? = null
@@ -132,9 +139,12 @@ internal fun CafeWebApp() {
         )
         val latestEntry = (entries + archived).firstOrNull { it.id == entry.id } ?: entry
         val photosUnchanged = latestEntry.photoPaths == entry.photoPaths
+        if (!photosUnchanged) {
+          sessionAttemptedIds = sessionAttemptedIds - entry.id
+        }
         val updatedEntry = latestEntry.copy(
           autoTags = if (photosUnchanged && errorMessage == null) labels.filter { it.confidence >= 0.22f }.map { it.name } else latestEntry.autoTags,
-          taggingModelVersion = BROWSER_FOOD_MODEL_VERSION.takeIf { photosUnchanged },
+          taggingModelVersion = BROWSER_FOOD_MODEL_VERSION.takeIf { photosUnchanged && errorMessage == null },
           classificationRuns = (listOf(run) + latestEntry.classificationRuns).take(50),
         )
         entries = entries.map { if (it.id == entry.id) updatedEntry else it }
@@ -178,6 +188,7 @@ internal fun CafeWebApp() {
     browserRequestPhotos { encoded ->
       val photos = decodePhotoSelection(encoded)
       if (photos.isNotEmpty()) {
+        sessionAttemptedIds = sessionAttemptedIds - id
         entries = entries.map { entry ->
           if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
         }
@@ -386,6 +397,7 @@ internal fun CafeWebApp() {
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
+            sessionAttemptedIds = sessionAttemptedIds - detailsEntry.id
             val updated = detailsEntry.copy(taggingModelVersion = null)
             entries = entries.map { if (it.id == detailsEntry.id) updated else it }
             archived = archived.map { if (it.id == detailsEntry.id) updated else it }
