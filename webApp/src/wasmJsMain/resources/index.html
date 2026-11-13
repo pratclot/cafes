@@ -61,63 +61,47 @@
     <video id="CameraPreview" autoplay playsinline muted></video>
     <script>
       (() => {
-        const transformersVersion = '3.3.3';
-        const modelId = 'Xenova/siglip-base-patch16-224';
         const baseUrl = new URL('.', window.location.href).href;
-        let classifierPromise = null;
+        let worker = null;
+        let nextMessageId = 1;
+        const pendingRequests = new Map();
 
-        async function loadTransformersModule() {
-          const urls = [
-            `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${transformersVersion}/dist/transformers.min.js`,
-            `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${transformersVersion}/+esm`,
-          ];
-          let lastError = null;
-          for (const url of urls) {
-            try {
-              const mod = await import(url);
-              const resolved = mod?.SiglipVisionModel ? mod : mod?.default;
-              if (resolved?.SiglipVisionModel && resolved?.Tensor) return resolved;
-            } catch (err) {
-              lastError = err;
-            }
-          }
-          throw lastError || new Error('Transformers.js runtime could not be loaded.');
-        }
-
-        function decodeBase64Int16(base64) {
-          const binary = atob(base64);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-          }
-          return new Int16Array(bytes.buffer);
-        }
-
-        function getFoodClassifier() {
-          if (!classifierPromise) {
-            classifierPromise = (async () => {
-              const [transformers, embResponse] = await Promise.all([
-                loadTransformersModule(),
-                fetch(new URL('food_siglip_embeddings.json', baseUrl)),
-              ]);
-              if (!embResponse.ok) {
-                throw new Error(`food_siglip_embeddings.json HTTP ${embResponse.status}`);
+        function ensureWorker() {
+          if (!worker) {
+            worker = new Worker(new URL('food-classifier-worker.js', baseUrl), { type: 'module' });
+            worker.onmessage = event => {
+              const msg = event.data || {};
+              const pending = pendingRequests.get(msg.id);
+              if (!pending) return;
+              pendingRequests.delete(msg.id);
+              if (msg.ok) {
+                pending.resolve(msg.output ?? '');
+              } else {
+                pending.reject(new Error(msg.error || 'Worker classification failed.'));
               }
-              const payload = await embResponse.json();
-              const embeddingsInt16 = decodeBase64Int16(payload.embeddingsBase64);
-              const visionModel = await transformers.SiglipVisionModel.from_pretrained(modelId, {
-                dtype: 'q8',
-              });
-              return { Tensor: transformers.Tensor, visionModel, payload, embeddingsInt16 };
-            })().catch(err => {
-              classifierPromise = null;
-              throw err;
-            });
+            };
+            worker.onerror = err => {
+              const error = new Error(err?.message || 'Food classifier worker crashed.');
+              for (const pending of pendingRequests.values()) {
+                pending.reject(error);
+              }
+              pendingRequests.clear();
+              worker = null;
+            };
           }
-          return classifierPromise;
+          return worker;
         }
 
-        async function computeImageViewsEmbeddings(image, Tensor, visionModel, dim) {
+        function postToWorker(payload, transfer = []) {
+          const w = ensureWorker();
+          const id = nextMessageId++;
+          return new Promise((resolve, reject) => {
+            pendingRequests.set(id, { resolve, reject });
+            w.postMessage({ ...payload, id, baseUrl }, transfer);
+          });
+        }
+
+        function extractImageViews(image) {
           const w = image.naturalWidth || image.width;
           const h = image.naturalHeight || image.height;
           const side = Math.min(w, h);
@@ -138,8 +122,8 @@
 
           const nViews = boxes.length;
           const plane = 224 * 224;
-          const pixelValues = new Float32Array(3 * plane);
-          const normViews = new Float32Array(nViews * dim);
+          const viewStride = 3 * plane;
+          const allPixels = new Float32Array(nViews * viewStride);
           const canvas = document.createElement('canvas');
           canvas.width = 224;
           canvas.height = 224;
@@ -150,96 +134,38 @@
             ctx.clearRect(0, 0, 224, 224);
             ctx.drawImage(image, sx, sy, sw, sh, 0, 0, 224, 224);
             const rgba = ctx.getImageData(0, 0, 224, 224).data;
+            const baseOff = v * viewStride;
             for (let i = 0; i < plane; i++) {
               const p = i * 4;
-              pixelValues[i] = rgba[p] / 127.5 - 1.0;
-              pixelValues[plane + i] = rgba[p + 1] / 127.5 - 1.0;
-              pixelValues[2 * plane + i] = rgba[p + 2] / 127.5 - 1.0;
+              allPixels[baseOff + i] = rgba[p] / 127.5 - 1.0;
+              allPixels[baseOff + plane + i] = rgba[p + 1] / 127.5 - 1.0;
+              allPixels[baseOff + 2 * plane + i] = rgba[p + 2] / 127.5 - 1.0;
             }
-            await new Promise(resolve => setTimeout(resolve, 0));
-            const visOut = await visionModel({ pixel_values: new Tensor('float32', pixelValues, [1, 3, 224, 224]) });
-            const pooler = visOut.pooler_output.data;
-            let norm = 0;
-            for (let i = 0; i < dim; i++) norm += pooler[i] * pooler[i];
-            norm = Math.sqrt(norm) || 1;
-            const off = v * dim;
-            for (let i = 0; i < dim; i++) normViews[off + i] = pooler[i] / norm;
           }
 
-          return { normViews, nViews };
+          return { nViews, buffer: allPixels.buffer };
         }
 
         window.cafeClassifyPhotos = async photos => {
-          const { Tensor, visionModel, payload, embeddingsInt16 } = await getFoodClassifier();
-          const dim = payload.dim || 768;
-          const scale = payload.int16Scale;
-          const bestDishScores = new Map();
-          const bestIngScores = new Map();
+          const photoViews = [];
+          const transferBuffers = [];
 
           for (const source of photos) {
             if (!source) continue;
             const image = new Image();
             image.src = source;
             await image.decode();
-
-            const { normViews, nViews } = await computeImageViewsEmbeddings(image, Tensor, visionModel, dim);
-
-            const dotPrompt = (viewIdx, promptIdx) => {
-              let s = 0;
-              const vOff = viewIdx * dim;
-              const pOff = promptIdx * dim;
-              for (let i = 0; i < dim; i++) {
-                s += normViews[vOff + i] * (embeddingsInt16[pOff + i] * scale);
-              }
-              return s;
-            };
-
-            let pIdx = 0;
-            for (const dish of payload.dishes) {
-              let bestLogit = -Infinity;
-              for (let c = 0; c < dish.count; c++) {
-                const logit = dotPrompt(0, pIdx++) + payload.dishBias;
-                if (logit > bestLogit) bestLogit = logit;
-              }
-              const score = 1 / (1 + Math.exp(-bestLogit));
-              if (!bestDishScores.has(dish.name) || bestDishScores.get(dish.name) < score) {
-                bestDishScores.set(dish.name, score);
-              }
-            }
-
-            for (const ing of payload.ingredients) {
-              let bestLogit = -Infinity;
-              for (let c = 0; c < ing.count; c++) {
-                for (let v = 1; v < nViews; v++) {
-                  const logit = dotPrompt(v, pIdx) + payload.ingredientBias;
-                  if (logit > bestLogit) bestLogit = logit;
-                }
-                pIdx++;
-              }
-              const score = 1 / (1 + Math.exp(-bestLogit));
-              if (!bestIngScores.has(ing.name) || bestIngScores.get(ing.name) < score) {
-                bestIngScores.set(ing.name, score);
-              }
-            }
+            const extracted = extractImageViews(image);
+            photoViews.push(extracted);
+            transferBuffers.push(extracted.buffer);
+            await new Promise(resolve => setTimeout(resolve, 0));
           }
 
-          const topDishes = [...bestDishScores.entries()]
-            .filter(([, score]) => score >= 0.12)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3);
-          const topIngredients = [...bestIngScores.entries()]
-            .filter(([, score]) => score >= 0.12)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5);
-
-          return [...topDishes, ...topIngredients]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 6)
-            .map(([name, score]) => `${encodeURIComponent(name)}|${score}`)
-            .join('\n');
+          if (photoViews.length === 0) return '';
+          return await postToWorker({ type: 'classify', photoViews }, transferBuffers);
         };
 
-        window.cafeFoodClassifierReady = getFoodClassifier();
+        window.cafeFoodClassifierReady = postToWorker({ type: 'init' });
         window.cafeFoodClassifierReady.catch(() => {});
       })();
     </script>
