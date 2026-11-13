@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.widthIn
@@ -40,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
@@ -55,13 +57,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
@@ -99,6 +105,18 @@ internal fun CafeWebApp() {
   var sessionAttemptedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
   var selectedDetailsEntryId by remember { mutableStateOf<String?>(null) }
   var tagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+  var showingMobileLog by remember { mutableStateOf(false) }
+  var forceCameraOnDesktop by remember { mutableStateOf(false) }
+  var editingLocation by remember { mutableStateOf(false) }
+  var cameraFacing by remember { mutableStateOf("environment") }
+  var cameraReady by remember { mutableStateOf(false) }
+  var cameraError by remember { mutableStateOf<String?>(null) }
+  var cameraRetryTrigger by remember { mutableIntStateOf(0) }
+  var viewfinderLeft by remember { mutableStateOf(0.0) }
+  var viewfinderTop by remember { mutableStateOf(0.0) }
+  var viewfinderWidth by remember { mutableStateOf(0.0) }
+  var viewfinderHeight by remember { mutableStateOf(0.0) }
+  var lastCapturedEntryId by remember { mutableStateOf<String?>(null) }
 
   fun persist() {
     val activeSaved = browserStorageWrite(ACTIVE_KEY, writeEntries(entries))
@@ -200,6 +218,43 @@ internal fun CafeWebApp() {
     }
   }
 
+  fun savePhotosAsNewVisit(photos: List<String>) {
+    if (photos.isEmpty()) return
+    val cafe = selectedCafe ?: position?.let { chooseCafe(cafes, it) }
+    val manual = manualCafe.trim()
+    val timestamp = browserNowMillis().toLong()
+    val newEntry = CafeEntry(
+      id = timestamp.toString(),
+      photoPath = photos.first(),
+      venue = cafe?.name ?: manual.ifEmpty { "Cafe visit" },
+      address = cafe?.address.orEmpty(),
+      visitedAt = timestamp,
+      latitude = cafe?.latitude ?: position?.latitude,
+      longitude = cafe?.longitude ?: position?.longitude,
+      photoPaths = photos,
+    )
+    entries = listOf(newEntry) + entries
+    lastCapturedEntryId = newEntry.id
+    persist()
+  }
+
+  fun pickPhotosFromDiskForNewVisit() {
+    browserRequestPhotos { encoded ->
+      savePhotosAsNewVisit(decodePhotoSelection(encoded))
+    }
+  }
+
+  fun snapPhotoFromCamera() {
+    val liveFrame = decodePhotoSelection(browserCaptureVideoFrame())
+    if (liveFrame.isNotEmpty()) {
+      savePhotosAsNewVisit(liveFrame)
+    } else {
+      browserRequestCameraFallback { encoded ->
+        savePhotosAsNewVisit(decodePhotoSelection(encoded))
+      }
+    }
+  }
+
   LaunchedEffect(Unit) { findLocation() }
 
   MaterialTheme {
@@ -207,193 +262,425 @@ internal fun CafeWebApp() {
       BoxWithConstraints(Modifier.fillMaxSize()) {
         val desktopLayout = maxWidth >= 900.dp
         val detailsEntry = (entries + archived).firstOrNull { it.id == selectedDetailsEntryId }
+        val showingCameraScreen = (!desktopLayout && !showingMobileLog) || (desktopLayout && forceCameraOnDesktop)
+        val cameraViewActive = showingCameraScreen && detailsEntry == null
+        val showVideoElement = cameraViewActive && cameraReady && !editingLocation
+
+        LaunchedEffect(viewfinderLeft, viewfinderTop, viewfinderWidth, viewfinderHeight, showVideoElement) {
+          browserUpdateCameraBounds(
+            left = viewfinderLeft,
+            top = viewfinderTop,
+            width = viewfinderWidth,
+            height = viewfinderHeight,
+            visible = showVideoElement,
+          )
+        }
+
+        LaunchedEffect(cameraViewActive, cameraFacing, cameraRetryTrigger) {
+          if (cameraViewActive) {
+            cameraError = null
+            browserStartCamera(cameraFacing) { ok, err ->
+              cameraReady = ok
+              cameraError = if (ok) null else err.ifEmpty { "Camera is unavailable." }
+            }
+          } else {
+            cameraReady = false
+            browserStopCamera()
+          }
+        }
+        DisposableEffect(Unit) {
+          onDispose { browserStopCamera() }
+        }
+
         Column(
           Modifier.fillMaxSize()
             .widthIn(max = 1440.dp)
             .align(Alignment.TopCenter)
-            .padding(horizontal = if (desktopLayout) 36.dp else 16.dp, vertical = if (desktopLayout) 28.dp else 16.dp),
+            .padding(horizontal = if (desktopLayout) 36.dp else 14.dp, vertical = if (desktopLayout) 24.dp else 12.dp),
         ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-          Column(Modifier.weight(1f)) {
-            Text("Cafe moments", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("A little log of places you share", color = Color(0xFF6E6258))
-          }
-          TextButton(onClick = { showArchive = !showArchive }) {
-            Text(if (showArchive) "Visit log" else "Archive (${archived.size})")
-          }
-        }
-        Spacer(Modifier.height(14.dp))
-
-        if (!showArchive) {
-          Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-              Text("Where you are", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-              Text(locationMessage, color = Color(0xFF5E554D))
-              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = ::findLocation, enabled = !loadingLocation) {
-                  Text(if (loadingLocation) "Locating…" else "Refresh location")
-                }
-                Button(onClick = {
-                  browserRequestPhotos { encoded ->
-                    val photos = decodePhotoSelection(encoded)
-                    if (photos.isNotEmpty()) {
-                      val cafe = selectedCafe ?: position?.let { chooseCafe(cafes, it) }
-                      val manual = manualCafe.trim()
-                      val timestamp = browserNowMillis().toLong()
-                      val newEntry = CafeEntry(
-                        id = timestamp.toString(),
-                        photoPath = photos.first(),
-                        venue = cafe?.name ?: manual.ifEmpty { "Cafe visit" },
-                        address = cafe?.address.orEmpty(),
-                        visitedAt = timestamp,
-                        latitude = cafe?.latitude ?: position?.latitude,
-                        longitude = cafe?.longitude ?: position?.longitude,
-                        photoPaths = photos,
-                      )
-                      entries = listOf(newEntry) + entries
-                      persist()
+          if (showingCameraScreen) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+              Text("Cafes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+              OutlinedButton(
+                onClick = {
+                  if (desktopLayout) forceCameraOnDesktop = false
+                  else showingMobileLog = true
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+              ) {
+                Text("Visit log (${entries.size}) →")
+              }
+            }
+            Spacer(Modifier.height(8.dp))
+            CompactLocationBar(
+              selectedCafe = selectedCafe,
+              manualCafe = manualCafe,
+              locationMessage = locationMessage,
+              loadingLocation = loadingLocation,
+              cafes = cafes,
+              editing = editingLocation,
+              showAddPhotosAction = false,
+              onToggleEditing = { editingLocation = !editingLocation },
+              onRefresh = ::findLocation,
+              onSelectCafe = { cafe ->
+                selectedCafe = cafe
+                locationMessage = "${cafe.name} selected"
+                editingLocation = false
+              },
+              onManualCafeChange = { manualCafe = it },
+              onApplyManualCafe = {
+                selectedCafe = null
+                locationMessage = "${manualCafe.trim()} will be used for your next visit."
+                editingLocation = false
+              },
+              onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+            )
+            Spacer(Modifier.height(10.dp))
+            val density = LocalDensity.current
+            Box(
+              Modifier.fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF1C1815))
+                .onGloballyPositioned { coords ->
+                  val pos = coords.positionInWindow()
+                  val size = coords.size
+                  val d = density.density.coerceAtLeast(0.1f)
+                  val l = (pos.x / d).toDouble()
+                  val t = (pos.y / d).toDouble()
+                  val w = (size.width / d).toDouble()
+                  val h = (size.height / d).toDouble()
+                  viewfinderLeft = l
+                  viewfinderTop = t
+                  viewfinderWidth = w
+                  viewfinderHeight = h
+                  browserUpdateCameraBounds(
+                    left = l,
+                    top = t,
+                    width = w,
+                    height = h,
+                    visible = showVideoElement,
+                  )
+                },
+              contentAlignment = Alignment.Center,
+            ) {
+              if (!cameraReady) {
+                Column(
+                  Modifier.padding(24.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Text(
+                    cameraError ?: "Opening camera…",
+                    color = Color(0xFFF5ECE3),
+                    style = MaterialTheme.typography.bodyMedium,
+                  )
+                  Text(
+                    "You can still use Take photo or From disk below.",
+                    color = Color(0xFFBDB1A6),
+                    style = MaterialTheme.typography.bodySmall,
+                  )
+                  if (cameraError != null) {
+                    OutlinedButton(onClick = { cameraRetryTrigger += 1 }) {
+                      Text("Retry camera", color = Color(0xFFF5ECE3))
                     }
                   }
-                }) { Text("Take / add photos") }
+                }
+              } else if (editingLocation) {
+                Text(
+                  "Camera paused while choosing a cafe",
+                  color = Color(0xFFF5ECE3),
+                  style = MaterialTheme.typography.bodySmall,
+                )
               }
-              if (cafes.size > 1 || (cafes.isNotEmpty() && selectedCafe == null)) {
-                Text("Choose the cafe for this visit", style = MaterialTheme.typography.labelLarge)
-                cafes.take(5).forEach { cafe ->
-                  TextButton(onClick = {
+            }
+            val recentSaved = lastCapturedEntryId?.let { id -> entries.firstOrNull { it.id == id } }
+            if (recentSaved != null) {
+              Spacer(Modifier.height(8.dp))
+              Surface(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFF2E8DE),
+              ) {
+                Row(
+                  Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Text(
+                    "✓ Saved to ${recentSaved.venue}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF3E342C),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                  )
+                  TextButton(
+                    onClick = { addPhotosToVisit(recentSaved.id) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                  ) { Text("+ Photo") }
+                  TextButton(
+                    onClick = { selectedDetailsEntryId = recentSaved.id },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                  ) { Text("Details") }
+                  TextButton(
+                    onClick = {
+                      if (desktopLayout) forceCameraOnDesktop = false
+                      else showingMobileLog = true
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                  ) { Text("Log →") }
+                }
+              }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+              Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              OutlinedButton(
+                onClick = ::pickPhotosFromDiskForNewVisit,
+                modifier = Modifier.height(50.dp),
+              ) {
+                Text("From disk")
+              }
+              Button(
+                onClick = ::snapPhotoFromCamera,
+                modifier = Modifier.weight(1f).height(50.dp),
+              ) {
+                Text("● Take photo", fontWeight = FontWeight.SemiBold)
+              }
+              OutlinedButton(
+                onClick = { cameraFacing = if (cameraFacing == "environment") "user" else "environment" },
+                modifier = Modifier.height(50.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+              ) {
+                Text("↺")
+              }
+            }
+          } else {
+            val shown = if (showArchive) archived else entries
+            val query = searchQuery.trim()
+            val matching = shown.filter { entry ->
+              query.isBlank() || entry.venue.contains(query, true) || entry.address.contains(query, true) || (entry.manualTags + entry.autoTags).any { it.contains(query, true) }
+            }
+
+            if (desktopLayout) {
+              Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                  Text(
+                    if (showArchive) "Archived visits" else "Cafe moments",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                  )
+                  Text("A little log of places you share", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedButton(
+                  onClick = { forceCameraOnDesktop = true },
+                  contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                  Text("📷 Camera")
+                }
+                TextButton(onClick = { showArchive = !showArchive }) {
+                  Text(if (showArchive) "Visit log (${entries.size})" else "Archive (${archived.size})")
+                }
+              }
+              Spacer(Modifier.height(8.dp))
+
+              if (!showArchive) {
+                CompactLocationBar(
+                  selectedCafe = selectedCafe,
+                  manualCafe = manualCafe,
+                  locationMessage = locationMessage,
+                  loadingLocation = loadingLocation,
+                  cafes = cafes,
+                  editing = editingLocation,
+                  showAddPhotosAction = true,
+                  onToggleEditing = { editingLocation = !editingLocation },
+                  onRefresh = ::findLocation,
+                  onSelectCafe = { cafe ->
                     selectedCafe = cafe
                     locationMessage = "${cafe.name} selected"
-                  }) {
-                    Text("${if (selectedCafe?.id == cafe.id) "✓ " else ""}${cafe.name}${cafe.address?.let { " · $it" } ?: ""}")
-                  }
-                }
-              }
-              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                  value = manualCafe,
-                  onValueChange = { manualCafe = it },
-                  label = { Text("Cafe name (optional)") },
-                  singleLine = true,
-                  modifier = Modifier.weight(1f),
-                )
-                if (manualCafe.isNotBlank()) {
-                  OutlinedButton(onClick = {
+                    editingLocation = false
+                  },
+                  onManualCafeChange = { manualCafe = it },
+                  onApplyManualCafe = {
                     selectedCafe = null
-                    cafes = emptyList()
                     locationMessage = "${manualCafe.trim()} will be used for your next visit."
-                  }) { Text("Use name") }
+                    editingLocation = false
+                  },
+                  onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+                )
+                Spacer(Modifier.height(8.dp))
+              }
+
+              OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Search cafes and dishes") },
+                placeholder = { Text("Try “Galette” or “Egg”") },
+                singleLine = true,
+              )
+              Spacer(Modifier.height(10.dp))
+
+              if (matching.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                  Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
+                }
+              } else {
+                LazyVerticalGrid(
+                  columns = GridCells.Adaptive(minSize = 320.dp),
+                  modifier = Modifier.fillMaxWidth().weight(1f),
+                  contentPadding = PaddingValues(bottom = 84.dp),
+                  horizontalArrangement = Arrangement.spacedBy(16.dp),
+                  verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                  gridItems(matching, key = { it.id }) { entry ->
+                    VisitCard(
+                      entry = entry,
+                      archived = showArchive,
+                      showArchiveButton = true,
+                      swipeEnabled = false,
+                      tagging = entry.id in taggingIds,
+                      tagDraft = tagDrafts[entry.id].orEmpty(),
+                      onDetails = { selectedDetailsEntryId = entry.id },
+                      onTagClick = { searchQuery = it },
+                      onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
+                      onAddTag = {
+                        val tag = tagDrafts[entry.id].orEmpty().trim()
+                        if (tag.isNotEmpty()) {
+                          val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
+                          entries = entries.map { if (it.id == entry.id) updated else it }
+                          archived = archived.map { if (it.id == entry.id) updated else it }
+                          tagDrafts = tagDrafts - entry.id
+                          persist()
+                        }
+                      },
+                      onPhotos = { addPhotosToVisit(entry.id) },
+                      onArchive = {
+                        entries = entries.filterNot { it.id == entry.id }
+                        archived = listOf(entry) + archived
+                        persist()
+                      },
+                      onRestore = {
+                        archived = archived.filterNot { it.id == entry.id }
+                        entries = listOf(entry) + entries
+                        persist()
+                      },
+                    )
+                  }
+                }
+              }
+            } else {
+              LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+              ) {
+                item(key = "mobile-log-header") {
+                  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      OutlinedButton(
+                        onClick = { showingMobileLog = false },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                      ) {
+                        Text("← Camera")
+                      }
+                      Text(
+                        if (showArchive) "Archived visits" else "Visit log",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                      )
+                      TextButton(onClick = { showArchive = !showArchive }) {
+                        Text(if (showArchive) "Visit log (${entries.size})" else "Archive (${archived.size})")
+                      }
+                    }
+                    if (!showArchive) {
+                      CompactLocationBar(
+                        selectedCafe = selectedCafe,
+                        manualCafe = manualCafe,
+                        locationMessage = locationMessage,
+                        loadingLocation = loadingLocation,
+                        cafes = cafes,
+                        editing = editingLocation,
+                        showAddPhotosAction = true,
+                        onToggleEditing = { editingLocation = !editingLocation },
+                        onRefresh = ::findLocation,
+                        onSelectCafe = { cafe ->
+                          selectedCafe = cafe
+                          locationMessage = "${cafe.name} selected"
+                          editingLocation = false
+                        },
+                        onManualCafeChange = { manualCafe = it },
+                        onApplyManualCafe = {
+                          selectedCafe = null
+                          locationMessage = "${manualCafe.trim()} will be used for your next visit."
+                          editingLocation = false
+                        },
+                        onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+                      )
+                    }
+                    OutlinedTextField(
+                      value = searchQuery,
+                      onValueChange = { searchQuery = it },
+                      modifier = Modifier.fillMaxWidth(),
+                      label = { Text("Search cafes and dishes") },
+                      placeholder = { Text("Try “Galette” or “Egg”") },
+                      singleLine = true,
+                    )
+                  }
+                }
+
+                if (matching.isEmpty()) {
+                  item(key = "mobile-log-empty") {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                      Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
+                    }
+                  }
+                } else {
+                  items(matching, key = { it.id }) { entry ->
+                    VisitCard(
+                      entry = entry,
+                      archived = showArchive,
+                      showArchiveButton = false,
+                      swipeEnabled = true,
+                      tagging = entry.id in taggingIds,
+                      tagDraft = tagDrafts[entry.id].orEmpty(),
+                      onDetails = { selectedDetailsEntryId = entry.id },
+                      onTagClick = { searchQuery = it },
+                      onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
+                      onAddTag = {
+                        val tag = tagDrafts[entry.id].orEmpty().trim()
+                        if (tag.isNotEmpty()) {
+                          val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
+                          entries = entries.map { if (it.id == entry.id) updated else it }
+                          archived = archived.map { if (it.id == entry.id) updated else it }
+                          tagDrafts = tagDrafts - entry.id
+                          persist()
+                        }
+                      },
+                      onPhotos = { addPhotosToVisit(entry.id) },
+                      onArchive = {
+                        entries = entries.filterNot { it.id == entry.id }
+                        archived = listOf(entry) + archived
+                        persist()
+                      },
+                      onRestore = {
+                        archived = archived.filterNot { it.id == entry.id }
+                        entries = listOf(entry) + entries
+                        persist()
+                      },
+                    )
+                  }
                 }
               }
             }
           }
-          Spacer(Modifier.height(12.dp))
-          Text("Recent visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        } else {
-          Text("Archived visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-        }
-
-        val shown = if (showArchive) archived else entries
-        OutlinedTextField(
-          value = searchQuery,
-          onValueChange = { searchQuery = it },
-          modifier = Modifier.fillMaxWidth(),
-          label = { Text("Search cafes and dishes") },
-          placeholder = { Text("Try “Benedict”") },
-          singleLine = true,
-        )
-        Spacer(Modifier.height(10.dp))
-        val query = searchQuery.trim()
-        val matching = shown.filter { entry ->
-          query.isBlank() || entry.venue.contains(query, true) || entry.address.contains(query, true) || (entry.manualTags + entry.autoTags).any { it.contains(query, true) }
-        }
-        if (matching.isEmpty()) {
-          Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
-          }
-        } else if (desktopLayout) {
-          LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 320.dp),
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-          ) {
-            gridItems(matching, key = { it.id }) { entry ->
-              VisitCard(
-                entry = entry,
-                archived = showArchive,
-                showArchiveButton = desktopLayout,
-                swipeEnabled = !desktopLayout,
-                tagging = entry.id in taggingIds,
-                tagDraft = tagDrafts[entry.id].orEmpty(),
-                onDetails = { selectedDetailsEntryId = entry.id },
-                onTagClick = { searchQuery = it },
-                onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
-                onAddTag = {
-                  val tag = tagDrafts[entry.id].orEmpty().trim()
-                  if (tag.isNotEmpty()) {
-                    val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
-                    entries = entries.map { if (it.id == entry.id) updated else it }
-                    archived = archived.map { if (it.id == entry.id) updated else it }
-                    tagDrafts = tagDrafts - entry.id
-                    persist()
-                  }
-                },
-                onPhotos = { addPhotosToVisit(entry.id) },
-                onArchive = {
-                  entries = entries.filterNot { it.id == entry.id }
-                  archived = listOf(entry) + archived
-                  persist()
-                },
-                onRestore = {
-                  archived = archived.filterNot { it.id == entry.id }
-                  entries = listOf(entry) + entries
-                  persist()
-                },
-              )
-            }
-          }
-        } else {
-          LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-          ) {
-            items(matching, key = { it.id }) { entry ->
-              VisitCard(
-                entry = entry,
-                archived = showArchive,
-                showArchiveButton = desktopLayout,
-                swipeEnabled = !desktopLayout,
-                tagging = entry.id in taggingIds,
-                tagDraft = tagDrafts[entry.id].orEmpty(),
-                onDetails = { selectedDetailsEntryId = entry.id },
-                onTagClick = { searchQuery = it },
-                onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
-                onAddTag = {
-                  val tag = tagDrafts[entry.id].orEmpty().trim()
-                  if (tag.isNotEmpty()) {
-                    val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
-                    entries = entries.map { if (it.id == entry.id) updated else it }
-                    archived = archived.map { if (it.id == entry.id) updated else it }
-                    tagDrafts = tagDrafts - entry.id
-                    persist()
-                  }
-                },
-                onPhotos = { addPhotosToVisit(entry.id) },
-                onArchive = {
-                  entries = entries.filterNot { it.id == entry.id }
-                  archived = listOf(entry) + archived
-                  persist()
-                },
-                onRestore = {
-                  archived = archived.filterNot { it.id == entry.id }
-                  entries = listOf(entry) + entries
-                  persist()
-                },
-              )
-            }
-          }
-        }
-        storageWarning?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp)) }
-        Text("Saved in this browser · no account or device sync yet", style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 8.dp))
+          storageWarning?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp)) }
+          Text("Saved in this browser · no account or device sync yet", style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 6.dp))
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
@@ -427,6 +714,106 @@ internal fun CafeWebApp() {
               onClose = { selectedDetailsEntryId = null },
               onRetryClassification = onRetryClassification,
             )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun CompactLocationBar(
+  selectedCafe: CafeCandidate?,
+  manualCafe: String,
+  locationMessage: String,
+  loadingLocation: Boolean,
+  cafes: List<CafeCandidate>,
+  editing: Boolean,
+  showAddPhotosAction: Boolean,
+  onToggleEditing: () -> Unit,
+  onRefresh: () -> Unit,
+  onSelectCafe: (CafeCandidate) -> Unit,
+  onManualCafeChange: (String) -> Unit,
+  onApplyManualCafe: () -> Unit,
+  onAddPhotos: () -> Unit,
+) {
+  val activeLabel = when {
+    selectedCafe != null -> "${selectedCafe.name}${selectedCafe.address?.takeIf(String::isNotBlank)?.let { " · $it" } ?: ""}"
+    manualCafe.isNotBlank() -> manualCafe.trim()
+    else -> locationMessage
+  }
+  Column(Modifier.fillMaxWidth()) {
+    Surface(
+      Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onToggleEditing),
+      shape = RoundedCornerShape(12.dp),
+      color = Color(0xFFF2E8DE),
+    ) {
+      Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        Text(
+          "📍 $activeLabel",
+          style = MaterialTheme.typography.bodyMedium,
+          fontWeight = if (selectedCafe != null || manualCafe.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal,
+          color = Color(0xFF3E342C),
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.weight(1f),
+        )
+        TextButton(
+          onClick = onToggleEditing,
+          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+        ) {
+          Text(if (editing) "Done" else "Change")
+        }
+        TextButton(
+          onClick = onRefresh,
+          enabled = !loadingLocation,
+          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+        ) {
+          Text(if (loadingLocation) "…" else "↻")
+        }
+        if (showAddPhotosAction) {
+          Button(
+            onClick = onAddPhotos,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+          ) {
+            Text("+ Add photos")
+          }
+        }
+      }
+    }
+    if (editing) {
+      Card(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Column(
+          Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(12.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          Text(locationMessage, style = MaterialTheme.typography.bodySmall, color = Color(0xFF5E554D))
+          if (cafes.isNotEmpty()) {
+            Text("Nearby cafes", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            cafes.take(6).forEach { cafe ->
+              TextButton(
+                onClick = { onSelectCafe(cafe) },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+              ) {
+                Text("${if (selectedCafe?.id == cafe.id) "✓ " else ""}${cafe.name}${cafe.address?.let { " · $it" } ?: ""}")
+              }
+            }
+          }
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+              value = manualCafe,
+              onValueChange = onManualCafeChange,
+              label = { Text("Custom cafe name") },
+              singleLine = true,
+              modifier = Modifier.weight(1f),
+            )
+            if (manualCafe.isNotBlank()) {
+              OutlinedButton(onClick = onApplyManualCafe) { Text("Use") }
+            }
           }
         }
       }
@@ -533,7 +920,6 @@ private fun VisitCard(
               BrowserPhoto(photo, Modifier.fillMaxSize())
             }
           }
-          SelectionContainer {
           Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
               Column(Modifier.weight(1f)) {
@@ -580,7 +966,6 @@ private fun VisitCard(
                 else OutlinedButton(onClick = onArchive) { Text("Archive") }
               }
             }
-          }
           }
         }
         if (swipeProgress > 0f) {

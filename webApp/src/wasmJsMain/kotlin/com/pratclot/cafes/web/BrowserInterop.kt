@@ -29,14 +29,20 @@ internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit)
   """,
 )
 
-internal fun browserRequestPhotos(onComplete: (String) -> Unit): Unit = js(
+internal fun browserRequestPhotos(onComplete: (String) -> Unit): Unit =
+  browserPickImageFiles(captureCamera = false, multiple = true, onComplete = onComplete)
+
+internal fun browserRequestCameraFallback(onComplete: (String) -> Unit): Unit =
+  browserPickImageFiles(captureCamera = true, multiple = false, onComplete = onComplete)
+
+private fun browserPickImageFiles(captureCamera: Boolean, multiple: Boolean, onComplete: (String) -> Unit): Unit = js(
   """
   {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.multiple = true;
-    input.setAttribute('capture', 'environment');
+    input.multiple = multiple;
+    if (captureCamera) input.setAttribute('capture', 'environment');
     input.onchange = async () => {
       const files = Array.from(input.files || []);
       if (files.length === 0) { onComplete(''); return; }
@@ -60,6 +66,118 @@ internal fun browserRequestPhotos(onComplete: (String) -> Unit): Unit = js(
     };
     input.click();
   }
+  """,
+)
+
+internal fun browserStartCamera(facingMode: String, onState: (Boolean, String) -> Unit): Unit = js(
+  """
+  {
+    const video = document.getElementById('CameraPreview');
+    if (!video) {
+      onState(false, 'Camera preview element is unavailable.');
+      return;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      onState(false, 'Live camera is not supported in this browser. Use Take photo or From disk below.');
+      return;
+    }
+    const syncVideo = () => {
+      const b = window.__cafeCameraBounds;
+      if (!b || !b.visible || b.width < 16 || b.height < 16 || !window.__cafeCameraStream) {
+        video.style.display = 'none';
+      } else {
+        video.style.left = Math.round(b.left) + 'px';
+        video.style.top = Math.round(b.top) + 'px';
+        video.style.width = Math.round(b.width) + 'px';
+        video.style.height = Math.round(b.height) + 'px';
+        video.style.display = 'block';
+        if (video.paused && video.srcObject) {
+          video.play().catch(() => {});
+        }
+      }
+    };
+    window.__syncCafeCameraVideo = syncVideo;
+    if (window.__cafeCameraStream) {
+      try { window.__cafeCameraStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+      window.__cafeCameraStream = null;
+    }
+    const primaryConstraints = {
+      video: { facingMode: { ideal: facingMode }, width: { ideal: 1920 }, height: { ideal: 1440 } },
+      audio: false
+    };
+    navigator.mediaDevices.getUserMedia(primaryConstraints)
+      .catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }))
+      .then((stream) => {
+        window.__cafeCameraStream = stream;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.muted = true;
+        syncVideo();
+        return video.play().catch(() => {});
+      })
+      .then(() => {
+        syncVideo();
+        onState(true, '');
+      })
+      .catch((err) => {
+        syncVideo();
+        onState(false, (err && err.message) ? err.message : 'Camera permission was denied or unavailable.');
+      });
+  }
+  """,
+)
+
+internal fun browserStopCamera(): Unit = js(
+  """
+  {
+    const video = document.getElementById('CameraPreview');
+    if (video) {
+      video.style.display = 'none';
+      video.srcObject = null;
+    }
+    if (window.__cafeCameraStream) {
+      try { window.__cafeCameraStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+      window.__cafeCameraStream = null;
+    }
+  }
+  """,
+)
+
+internal fun browserUpdateCameraBounds(left: Double, top: Double, width: Double, height: Double, visible: Boolean): Unit = js(
+  """
+  {
+    window.__cafeCameraBounds = { left: left, top: top, width: width, height: height, visible: visible };
+    const video = document.getElementById('CameraPreview');
+    if (video) {
+      if (!visible || width < 16 || height < 16 || !window.__cafeCameraStream) {
+        video.style.display = 'none';
+      } else {
+        video.style.left = Math.round(left) + 'px';
+        video.style.top = Math.round(top) + 'px';
+        video.style.width = Math.round(width) + 'px';
+        video.style.height = Math.round(height) + 'px';
+        video.style.display = 'block';
+        if (video.paused && video.srcObject) {
+          video.play().catch(() => {});
+        }
+      }
+    }
+  }
+  """,
+)
+
+internal fun browserCaptureVideoFrame(): String = js(
+  """
+  (() => {
+    const video = document.getElementById('CameraPreview');
+    if (!video || !window.__cafeCameraStream || !video.videoWidth || !video.videoHeight) return '';
+    const scale = Math.min(1, 1440 / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    return encodeURIComponent(canvas.toDataURL('image/jpeg', 0.85));
+  })()
   """,
 )
 
