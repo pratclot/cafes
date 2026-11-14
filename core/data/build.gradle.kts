@@ -18,5 +18,5 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
   api(project(":core:model"))
-  implementation(libs.kotlinx.coroutines.core)
+  implementation(project(":core:passthrough"))
 }

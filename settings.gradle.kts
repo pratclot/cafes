@@ -34,6 +34,7 @@ rootProject.name = "com.pratclot.cafes"
 include(
   ":app",
   ":core:model",
+  ":core:passthrough",
   ":core:data",
   ":core:location",
   ":core:recognition",

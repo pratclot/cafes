@@ -24,31 +24,15 @@ android {
 kotlin { jvmToolchain(17) }
 
 dependencies {
-  val composeBom = platform(libs.androidx.compose.bom)
-  implementation(composeBom)
-  androidTestImplementation(composeBom)
+  androidTestImplementation(platform(libs.androidx.compose.bom))
 
+  implementation(project(":core:passthrough"))
   implementation(project(":core:model"))
   implementation(project(":core:data"))
   implementation(project(":core:location"))
   implementation(project(":core:recognition"))
   implementation(project(":core:designsystem"))
 
-  implementation(libs.androidx.activity.compose)
-  implementation(libs.androidx.lifecycle.runtime.compose)
-  implementation(libs.androidx.lifecycle.runtime.ktx)
-  implementation(libs.androidx.lifecycle.viewmodel.compose)
-  implementation(libs.androidx.compose.animation)
-  implementation(libs.androidx.compose.foundation)
-  implementation(libs.androidx.compose.ui)
-  implementation(libs.androidx.compose.ui.tooling.preview)
-  implementation(libs.androidx.compose.material3)
-  implementation(libs.androidx.navigation3.runtime)
-  implementation(libs.androidx.navigation3.ui)
-  implementation(libs.androidx.lifecycle.viewmodel.navigation3)
-  implementation(libs.androidx.compose.material3.adaptive)
-  implementation(libs.androidx.compose.material3.adaptive.layout)
-  implementation(libs.androidx.compose.material3.adaptive.navigation3)
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.lifecycle)
