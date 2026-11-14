@@ -26,7 +26,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
   androidTestImplementation(platform(libs.androidx.compose.bom))
 
-  implementation(project(":core:passthrough"))
+  implementation(project(":core:passthrough-android"))
   implementation(project(":core:model"))
   implementation(project(":core:data"))
   implementation(project(":core:location"))

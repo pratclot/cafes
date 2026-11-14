@@ -20,5 +20,5 @@ android {
 kotlin { jvmToolchain(17) }
 
 dependencies {
-  implementation(project(":core:passthrough"))
+  implementation(project(":core:passthrough-android"))
 }

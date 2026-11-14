@@ -18,6 +18,6 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
   api(project(":core:model"))
-  implementation(project(":core:passthrough"))
+  implementation(project(":core:passthrough-android"))
   implementation(libs.play.services.location)
 }

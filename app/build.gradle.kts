@@ -44,7 +44,7 @@ kotlin {
 }
 
 dependencies {
-  implementation(project(":core:passthrough"))
+  implementation(project(":core:passthrough-android"))
   implementation(project(":core:designsystem"))
   implementation(project(":feature:cafe-log"))
 }

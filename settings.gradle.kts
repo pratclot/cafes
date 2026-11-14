@@ -35,6 +35,7 @@ include(
   ":app",
   ":core:model",
   ":core:passthrough",
+  ":core:passthrough-android",
   ":core:data",
   ":core:location",
   ":core:recognition",

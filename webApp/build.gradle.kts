@@ -15,6 +15,7 @@ kotlin {
 
   sourceSets {
     commonMain.dependencies {
+      implementation(project(":core:passthrough"))
       implementation(project(":core:model"))
       implementation(compose.runtime)
       implementation(compose.foundation)

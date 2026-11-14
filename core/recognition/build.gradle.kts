@@ -14,7 +14,7 @@ android {
 
 dependencies {
   implementation(project(":core:model"))
-  implementation(project(":core:passthrough"))
+  implementation(project(":core:passthrough-android"))
   implementation(libs.play.services.litert)
   implementation(libs.kotlinx.coroutines.play.services)
 }
