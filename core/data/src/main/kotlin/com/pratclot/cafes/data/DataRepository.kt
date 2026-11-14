@@ -18,13 +18,23 @@ class DefaultDataRepository : DataRepository {
   override val data: Flow<List<String>> = flow { emit(listOf("Android")) }
 }
 
+interface CafeLogRepository {
+  fun load(): List<CafeEntry>
+  fun loadArchived(): List<CafeEntry>
+  fun add(entry: CafeEntry): List<CafeEntry>
+  fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+  fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+  fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>>
+  fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+}
+
 /** Local-first storage boundary; a synced repository can be added without changing the UI model. */
-class LocalCafeLogRepository(context: Context) {
+class LocalCafeLogRepository(context: Context) : CafeLogRepository {
   private val preferences = context.getSharedPreferences("cafe-log", Context.MODE_PRIVATE)
 
-  fun load(): List<CafeEntry> = loadFrom("entries")
+  override fun load(): List<CafeEntry> = loadFrom("entries")
 
-  fun loadArchived(): List<CafeEntry> = loadFrom("archived_entries")
+  override fun loadArchived(): List<CafeEntry> = loadFrom("archived_entries")
 
   private fun loadFrom(key: String): List<CafeEntry> = runCatching {
     val json = JSONArray(preferences.getString(key, "[]"))
@@ -39,13 +49,13 @@ class LocalCafeLogRepository(context: Context) {
     }.filter { entry -> entry.photoPaths.any { File(it).exists() } }.sortedByDescending { it.visitedAt }
   }.getOrDefault(emptyList())
 
-  fun add(entry: CafeEntry): List<CafeEntry> {
+  override fun add(entry: CafeEntry): List<CafeEntry> {
     val entries = (listOf(entry) + load()).distinctBy { it.id }.sortedByDescending { it.visitedAt }
     save("entries", entries)
     return entries
   }
 
-  fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     val active = load().filterNot { it.id == entry.id }
     val archived = (listOf(entry) + loadArchived()).distinctBy { it.id }.sortedByDescending { it.visitedAt }
     save("entries", active)
@@ -53,7 +63,7 @@ class LocalCafeLogRepository(context: Context) {
     return active to archived
   }
 
-  fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     val archived = loadArchived().filterNot { it.id == entry.id }
     val active = (listOf(entry) + load()).distinctBy { it.id }.sortedByDescending { it.visitedAt }
     save("entries", active)
@@ -61,7 +71,7 @@ class LocalCafeLogRepository(context: Context) {
     return active to archived
   }
 
-  fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
     fun append(entries: List<CafeEntry>) = entries.map { entry ->
       if (entry.id == entryId) entry.copy(photoPaths = (entry.photoPaths + newPhotoPaths).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
     }
@@ -72,7 +82,7 @@ class LocalCafeLogRepository(context: Context) {
     return active to archived
   }
 
-  fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     fun replace(entries: List<CafeEntry>) = entries.map { if (it.id == entry.id) entry else it }
     val active = replace(load())
     val archived = replace(loadArchived())

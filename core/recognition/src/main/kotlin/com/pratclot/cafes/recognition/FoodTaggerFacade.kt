@@ -21,7 +21,7 @@ import java.io.Closeable
 import java.io.File
 import java.util.concurrent.Executors
 
-class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade {
+class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade, AutoCloseable {
   private val appContext = context.applicationContext
   private val executor = Executors.newSingleThreadExecutor { Thread(it, "cafe-food-tagger") }
   private val dispatcher = executor.asCoroutineDispatcher()
@@ -44,6 +44,14 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade {
     }
     scores.groupBy { it.name.lowercase() }.map { (_, candidates) -> candidates.maxBy { it.confidence } }
       .sortedByDescending { it.confidence }.take(6)
+  }
+
+  override fun close() {
+    executor.execute {
+      runCatching { classifier?.close() }
+      classifier = null
+    }
+    executor.shutdown()
   }
 
   private suspend fun getEnvironment(): Environment = EnvironmentHolder.get(appContext)
