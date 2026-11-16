@@ -92,8 +92,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
-import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.UserPosition
+import com.pratclot.cafes.ui.SharedClassificationSection
 import com.pratclot.cafes.location.hasLocationPermission
 import com.pratclot.cafes.ui.camera.CameraXPreview
 import com.pratclot.cafes.ui.camera.capturePhoto
@@ -819,26 +819,12 @@ internal fun VisitDetailScreen(
       }
 
       HorizontalDivider()
-      Text("Automatic classification", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-      Text(
-        text = "Model: ${entry.taggingModelVersion ?: state.modelVersion}",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      SharedClassificationSection(
+        entry = entry,
+        currentModelVersion = entry.taggingModelVersion ?: state.modelVersion,
+        tagging = tagging,
+        onRetryClassification = { viewModel.retryClassification(entry) },
       )
-      Text("Run history (${entry.classificationRuns.size})", style = MaterialTheme.typography.labelLarge)
-      if (entry.classificationRuns.isEmpty()) {
-        Text(
-          text = if (entry.taggingModelVersion == null) "No classification runs recorded yet."
-          else "This visit was classified before run history was saved.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      } else {
-        entry.classificationRuns.forEach { run -> ClassificationRunDetails(run) }
-      }
-      OutlinedButton(onClick = { viewModel.retryClassification(entry) }, enabled = !tagging) {
-        Text(if (tagging) "Classification running…" else "Run classification again")
-      }
     }
   }
 }
@@ -1214,32 +1200,6 @@ private fun CafeEntryCard(
         }
       }
     }
-  }
-}
-
-@Composable
-private fun ClassificationRunDetails(run: ClassificationRun) {
-  val dateFormatter = remember { SimpleDateFormat("EEE, d MMM · HH:mm:ss", Locale.getDefault()) }
-  Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-    Text(dateFormatter.format(Date(run.occurredAt)), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
-    val summary = when (run.outcome) {
-      "ERROR" -> "Processing error"
-      "NO_DETECTIONS" -> "Nothing detected"
-      else -> "Detected ${run.labels.size} label${if (run.labels.size == 1) "" else "s"}"
-    }
-    Text(
-      "$summary · ${run.photoCount} photo${if (run.photoCount == 1) "" else "s"} · ${run.durationMillis} ms · ${run.modelVersion}",
-      style = MaterialTheme.typography.bodySmall,
-      color = if (run.outcome == "ERROR") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    if (run.labels.isNotEmpty()) {
-      Text(
-        run.labels.joinToString(" · ") { "${it.name} (${(it.confidence * 100).toInt()}%)" },
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.primary,
-      )
-    }
-    run.errorMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
   }
 }
 

@@ -19,6 +19,7 @@ kotlin {
       implementation(project(":core:model"))
       implementation(project(":core:data"))
       implementation(project(":core:designsystem"))
+      implementation(project(":core:ui"))
       implementation(compose.runtime)
       implementation(compose.foundation)
       implementation(compose.animation)

@@ -80,6 +80,7 @@ import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.data.CafeLogStateHolder
+import com.pratclot.cafes.ui.SharedVisitDetailsContent
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlin.io.encoding.Base64
@@ -896,68 +897,15 @@ private fun VisitDetailsContent(
   modifier: Modifier,
   fullScreen: Boolean,
 ) {
-  val latitude = entry.latitude
-  val longitude = entry.longitude
-  SelectionContainer {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = onClose) { Text(if (fullScreen) "← Back to visits" else "Close") }
-        Spacer(Modifier.weight(1f))
-        Text("${entry.photoPaths.size} photo${if (entry.photoPaths.size == 1) "" else "s"}", style = MaterialTheme.typography.labelMedium)
-      }
-      Text(entry.venue, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-      if (entry.address.isNotBlank()) Text(entry.address, color = Color(0xFF6E6258))
-      Text("Visited ${browserFormatDate(entry.visitedAt.toDouble())}", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
-      if (latitude != null && longitude != null) {
-        Text("Location: ${latitude.format(5)}, ${longitude.format(5)}", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
-      }
-      val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
-      if (tags.isNotEmpty()) {
-        Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
-        Text(tags.joinToString(" · "), color = Color(0xFF8D5E3C))
-      }
-      androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 8.dp))
-      Text("Automatic classification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-      Text("Current model: $BROWSER_FOOD_MODEL_VERSION", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
-      if (tagging) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
-          Text("Classification running…", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
-        }
-      }
-      Text("Run history (${entry.classificationRuns.size})", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
-      if (entry.classificationRuns.isEmpty()) {
-        Text(
-          if (entry.taggingModelVersion == null) "No classification runs recorded yet."
-          else "This visit was classified before run history was saved.",
-          color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall,
-        )
-      } else {
-        entry.classificationRuns.forEach { run ->
-          val summary = when (run.outcome) {
-            "ERROR" -> "Processing error"
-            "NO_DETECTIONS" -> "Nothing detected"
-            else -> "Detected ${run.labels.size} label${if (run.labels.size == 1) "" else "s"}"
-          }
-          Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(browserFormatDate(run.occurredAt.toDouble()), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
-            Text(
-              "$summary · ${run.photoCount} photo${if (run.photoCount == 1) "" else "s"} · ${run.durationMillis} ms · ${run.modelVersion}",
-              color = if (run.outcome == "ERROR") Color(0xFFB3261E) else Color(0xFF6E6258),
-              style = MaterialTheme.typography.bodySmall,
-            )
-            if (run.labels.isNotEmpty()) {
-              Text(run.labels.joinToString(" · ") { "${it.name} (${(it.confidence * 100).toInt()}%)" }, color = Color(0xFF8D5E3C), style = MaterialTheme.typography.bodySmall)
-            }
-            run.errorMessage?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.bodySmall) }
-          }
-        }
-      }
-      OutlinedButton(onClick = onRetryClassification, enabled = !tagging, modifier = Modifier.padding(top = 8.dp)) {
-        Text(if (tagging) "Classification running…" else "Run classification again")
-      }
-    }
-  }
+  SharedVisitDetailsContent(
+    entry = entry,
+    currentModelVersion = BROWSER_FOOD_MODEL_VERSION,
+    tagging = tagging,
+    onClose = onClose,
+    closeLabel = if (fullScreen) "← Back to visits" else "Close",
+    onRetryClassification = onRetryClassification,
+    modifier = modifier,
+  )
 }
 
 @Composable

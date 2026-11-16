@@ -40,6 +40,7 @@ include(
   ":core:location",
   ":core:recognition",
   ":core:designsystem",
+  ":core:ui",
   ":feature:cafe-log",
   ":webApp",
 )

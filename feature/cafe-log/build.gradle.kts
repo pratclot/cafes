@@ -32,6 +32,7 @@ dependencies {
   implementation(project(":core:location"))
   implementation(project(":core:recognition"))
   implementation(project(":core:designsystem"))
+  implementation(project(":core:ui"))
 
   implementation(libs.androidx.camera.core)
   implementation(libs.androidx.camera.camera2)
