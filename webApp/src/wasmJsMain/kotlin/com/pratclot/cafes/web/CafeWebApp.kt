@@ -43,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,39 +71,51 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
+import com.pratclot.cafes.data.CafeLogStateHolder
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-private const val ACTIVE_KEY = "cafe-log-active"
-private const val ARCHIVED_KEY = "cafe-log-archived"
-
 @Composable
 internal fun CafeWebApp() {
-  val locationFacade = remember { BrowserGeolocationFacade() }
-  val nearbyCafeFacade = remember { OpenStreetMapBrowserCafeFacade() }
-  val foodTagger = remember { MediaPipeFoodTaggerFacade() }
-  var entries by remember { mutableStateOf(readEntries(ACTIVE_KEY)) }
-  var archived by remember { mutableStateOf(readEntries(ARCHIVED_KEY)) }
-  var showArchive by remember { mutableStateOf(false) }
-  var position by remember { mutableStateOf<UserPosition?>(null) }
-  var cafes by remember { mutableStateOf<List<CafeCandidate>>(emptyList()) }
-  var locationMessage by remember { mutableStateOf("Location has not been checked yet.") }
-  var loadingLocation by remember { mutableStateOf(false) }
-  var manualCafe by remember { mutableStateOf("") }
-  var selectedCafe by remember { mutableStateOf<CafeCandidate?>(null) }
+  val scope = rememberCoroutineScope()
   var storageWarning by remember { mutableStateOf<String?>(null) }
+  val stateHolder = remember {
+    CafeLogStateHolder(
+      scope = scope,
+      repository = BrowserCafeLogRepository { warning -> storageWarning = warning },
+      facades = createBrowserLocationFacades(),
+      foodTagger = MediaPipeFoodTaggerFacade(),
+      modelVersion = BROWSER_FOOD_MODEL_VERSION,
+      ioDispatcher = Dispatchers.Default,
+      clock = { browserNowMillis().toLong() },
+    )
+  }
+  DisposableEffect(stateHolder) {
+    onDispose { stateHolder.close() }
+  }
+
+  val uiState by stateHolder.uiState.collectAsState()
+  val entries = uiState.entries
+  val archived = uiState.archivedEntries
+  val position = uiState.currentPosition
+  val cafes = uiState.nearbyCafes
+  val selectedCafe = uiState.selectedCafe
+  val taggingIds = uiState.taggingIds
+  val lastCapturedEntryId = uiState.lastCapturedEntryId
+  val loadingLocation = uiState.refreshingLocation || uiState.searchingCafes
+
+  var showArchive by remember { mutableStateOf(false) }
+  var manualCafe by remember { mutableStateOf("") }
   var searchQuery by remember { mutableStateOf("") }
-  var taggingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-  var sessionAttemptedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
   var selectedDetailsEntryId by remember { mutableStateOf<String?>(null) }
   var tagDrafts by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
   var showingMobileLog by remember { mutableStateOf(false) }
@@ -116,146 +129,51 @@ internal fun CafeWebApp() {
   var viewfinderTop by remember { mutableStateOf(0.0) }
   var viewfinderWidth by remember { mutableStateOf(0.0) }
   var viewfinderHeight by remember { mutableStateOf(0.0) }
-  var lastCapturedEntryId by remember { mutableStateOf<String?>(null) }
 
-  fun persist() {
-    val activeSaved = browserStorageWrite(ACTIVE_KEY, writeEntries(entries))
-    val archivedSaved = browserStorageWrite(ARCHIVED_KEY, writeEntries(archived))
-    storageWarning = if (activeSaved && archivedSaved) null else
-      "Browser storage is full or unavailable. This change may not survive a page reload."
-  }
-
-  LaunchedEffect(Unit) {
-    snapshotFlow { entries + archived }.collect { currentEntries ->
-      currentEntries.filter {
-        it.photoPaths.isNotEmpty() &&
-          (it.taggingModelVersion != BROWSER_FOOD_MODEL_VERSION || it.classificationRuns.firstOrNull()?.outcome == "ERROR") &&
-          it.id !in taggingIds &&
-          it.id !in sessionAttemptedIds
-      }.forEach { entry ->
-        taggingIds = taggingIds + entry.id
-        sessionAttemptedIds = sessionAttemptedIds + entry.id
-        val startedAt = browserNowMillis().toLong()
-        var labels = emptyList<FoodLabel>()
-        var errorMessage: String? = null
-        try {
-          labels = foodTagger.classify(entry.photoPaths)
-        } catch (cancelled: CancellationException) {
-          throw cancelled
-        } catch (error: Exception) {
-          errorMessage = error.message ?: error.toString()
-        }
-        val completedAt = browserNowMillis().toLong()
-        val run = ClassificationRun(
-          occurredAt = completedAt,
-          modelVersion = BROWSER_FOOD_MODEL_VERSION,
-          photoCount = entry.photoPaths.size,
-          durationMillis = completedAt - startedAt,
-          outcome = when { errorMessage != null -> "ERROR"; labels.isEmpty() -> "NO_DETECTIONS"; else -> "SUCCESS" },
-          labels = labels,
-          errorMessage = errorMessage,
-        )
-        val latestEntry = (entries + archived).firstOrNull { it.id == entry.id } ?: entry
-        val photosUnchanged = latestEntry.photoPaths == entry.photoPaths
-        if (!photosUnchanged) {
-          sessionAttemptedIds = sessionAttemptedIds - entry.id
-        }
-        val updatedEntry = latestEntry.copy(
-          autoTags = if (photosUnchanged && errorMessage == null) labels.filter { it.confidence >= 0.22f }.map { it.name } else latestEntry.autoTags,
-          taggingModelVersion = BROWSER_FOOD_MODEL_VERSION.takeIf { photosUnchanged && errorMessage == null },
-          classificationRuns = (listOf(run) + latestEntry.classificationRuns).take(50),
-        )
-        entries = entries.map { if (it.id == entry.id) updatedEntry else it }
-        archived = archived.map { if (it.id == entry.id) updatedEntry else it }
-        taggingIds = taggingIds - entry.id
-        persist()
-      }
-    }
-  }
-
-  fun findLocation() {
-    loadingLocation = true
-    locationMessage = "Checking your location…"
-    selectedCafe = null
-    cafes = emptyList()
-    locationFacade.currentPosition { latitude, longitude, accuracy, error ->
-      loadingLocation = false
-      if (error.isNotEmpty() || !latitude.isFinite() || !longitude.isFinite()) {
-        locationMessage = error.ifEmpty { "Could not read a location from this browser." }
-        position = null
-        cafes = emptyList()
-      } else {
-        val result = UserPosition(latitude, longitude, accuracy.toFloat(), browserNowMillis().toLong())
-        position = result
-        locationMessage = "${latitude.format(5)}, ${longitude.format(5)} · ±${accuracy.toInt()} m"
-        nearbyCafeFacade.nearby(latitude, longitude) { results, failed ->
-          cafes = results
-          selectedCafe = chooseCafe(cafes, result)
-          locationMessage = when {
-            failed -> "Location found, but nearby cafes could not be loaded."
-            selectedCafe != null -> "${selectedCafe!!.name} · ${locationMessage}"
-            cafes.isNotEmpty() -> "${cafes.size} nearby places need a quick choice."
-            else -> "No nearby cafes found. You can enter the name manually."
-          }
-        }
-      }
-    }
+  val locationMessage = when {
+    uiState.refreshingLocation -> "Checking your location…"
+    uiState.refreshMessage != null -> uiState.refreshMessage!!
+    position == null -> "Location has not been checked yet."
+    uiState.searchingCafes -> "${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
+    uiState.cafeSearchError != null -> "Location found, but nearby cafes could not be loaded."
+    selectedCafe != null -> "${selectedCafe.name} · ${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
+    cafes.isNotEmpty() -> "${cafes.size} nearby places need a quick choice."
+    else -> "No nearby cafes found. You can enter the name manually."
   }
 
   fun addPhotosToVisit(id: String) {
     browserRequestPhotos { encoded ->
       val photos = decodePhotoSelection(encoded)
       if (photos.isNotEmpty()) {
-        sessionAttemptedIds = sessionAttemptedIds - id
-        entries = entries.map { entry ->
-          if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
-        }
-        archived = archived.map { entry ->
-          if (entry.id == id) entry.copy(photoPaths = (entry.photoPaths + photos).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
-        }
-        persist()
+        stateHolder.savePickedPhotos(entryId = id, savedPaths = photos)
       }
     }
   }
 
-  fun savePhotosAsNewVisit(photos: List<String>) {
-    if (photos.isEmpty()) return
-    val cafe = selectedCafe ?: position?.let { chooseCafe(cafes, it) }
-    val manual = manualCafe.trim()
-    val timestamp = browserNowMillis().toLong()
-    val newEntry = CafeEntry(
-      id = timestamp.toString(),
-      photoPath = photos.first(),
-      venue = cafe?.name ?: manual.ifEmpty { "Cafe visit" },
-      address = cafe?.address.orEmpty(),
-      visitedAt = timestamp,
-      latitude = cafe?.latitude ?: position?.latitude,
-      longitude = cafe?.longitude ?: position?.longitude,
-      photoPaths = photos,
-    )
-    entries = listOf(newEntry) + entries
-    lastCapturedEntryId = newEntry.id
-    persist()
-  }
-
   fun pickPhotosFromDiskForNewVisit() {
     browserRequestPhotos { encoded ->
-      savePhotosAsNewVisit(decodePhotoSelection(encoded))
+      val photos = decodePhotoSelection(encoded)
+      if (photos.isNotEmpty()) {
+        stateHolder.savePickedPhotos(entryId = null, savedPaths = photos)
+      }
     }
   }
 
   fun snapPhotoFromCamera() {
     val liveFrame = decodePhotoSelection(browserCaptureVideoFrame())
     if (liveFrame.isNotEmpty()) {
-      savePhotosAsNewVisit(liveFrame)
+      stateHolder.savePickedPhotos(entryId = null, savedPaths = liveFrame)
     } else {
       browserRequestCameraFallback { encoded ->
-        savePhotosAsNewVisit(decodePhotoSelection(encoded))
+        val photos = decodePhotoSelection(encoded)
+        if (photos.isNotEmpty()) {
+          stateHolder.savePickedPhotos(entryId = null, savedPaths = photos)
+        }
       }
     }
   }
 
-  LaunchedEffect(Unit) { findLocation() }
+  LaunchedEffect(stateHolder) { stateHolder.refreshLocation() }
 
   MaterialTheme {
     Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
@@ -321,16 +239,14 @@ internal fun CafeWebApp() {
               editing = editingLocation,
               showAddPhotosAction = false,
               onToggleEditing = { editingLocation = !editingLocation },
-              onRefresh = ::findLocation,
+              onRefresh = { stateHolder.refreshLocation() },
               onSelectCafe = { cafe ->
-                selectedCafe = cafe
-                locationMessage = "${cafe.name} selected"
+                stateHolder.selectCafe(cafe)
                 editingLocation = false
               },
               onManualCafeChange = { manualCafe = it },
               onApplyManualCafe = {
-                selectedCafe = null
-                locationMessage = "${manualCafe.trim()} will be used for your next visit."
+                stateHolder.selectManualCafe(manualCafe)
                 editingLocation = false
               },
               onAddPhotos = ::pickPhotosFromDiskForNewVisit,
@@ -498,16 +414,14 @@ internal fun CafeWebApp() {
                   editing = editingLocation,
                   showAddPhotosAction = true,
                   onToggleEditing = { editingLocation = !editingLocation },
-                  onRefresh = ::findLocation,
+                  onRefresh = { stateHolder.refreshLocation() },
                   onSelectCafe = { cafe ->
-                    selectedCafe = cafe
-                    locationMessage = "${cafe.name} selected"
+                    stateHolder.selectCafe(cafe)
                     editingLocation = false
                   },
                   onManualCafeChange = { manualCafe = it },
                   onApplyManualCafe = {
-                    selectedCafe = null
-                    locationMessage = "${manualCafe.trim()} will be used for your next visit."
+                    stateHolder.selectManualCafe(manualCafe)
                     editingLocation = false
                   },
                   onAddPhotos = ::pickPhotosFromDiskForNewVisit,
@@ -551,24 +465,13 @@ internal fun CafeWebApp() {
                       onAddTag = {
                         val tag = tagDrafts[entry.id].orEmpty().trim()
                         if (tag.isNotEmpty()) {
-                          val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
-                          entries = entries.map { if (it.id == entry.id) updated else it }
-                          archived = archived.map { if (it.id == entry.id) updated else it }
+                          stateHolder.addManualTag(entry, tag)
                           tagDrafts = tagDrafts - entry.id
-                          persist()
                         }
                       },
                       onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = {
-                        entries = entries.filterNot { it.id == entry.id }
-                        archived = listOf(entry) + archived
-                        persist()
-                      },
-                      onRestore = {
-                        archived = archived.filterNot { it.id == entry.id }
-                        entries = listOf(entry) + entries
-                        persist()
-                      },
+                      onArchive = { stateHolder.archiveEntry(entry) },
+                      onRestore = { stateHolder.restoreEntry(entry) },
                     )
                   }
                 }
@@ -608,16 +511,14 @@ internal fun CafeWebApp() {
                         editing = editingLocation,
                         showAddPhotosAction = true,
                         onToggleEditing = { editingLocation = !editingLocation },
-                        onRefresh = ::findLocation,
+                        onRefresh = { stateHolder.refreshLocation() },
                         onSelectCafe = { cafe ->
-                          selectedCafe = cafe
-                          locationMessage = "${cafe.name} selected"
+                          stateHolder.selectCafe(cafe)
                           editingLocation = false
                         },
                         onManualCafeChange = { manualCafe = it },
                         onApplyManualCafe = {
-                          selectedCafe = null
-                          locationMessage = "${manualCafe.trim()} will be used for your next visit."
+                          stateHolder.selectManualCafe(manualCafe)
                           editingLocation = false
                         },
                         onAddPhotos = ::pickPhotosFromDiskForNewVisit,
@@ -655,24 +556,13 @@ internal fun CafeWebApp() {
                       onAddTag = {
                         val tag = tagDrafts[entry.id].orEmpty().trim()
                         if (tag.isNotEmpty()) {
-                          val updated = entry.copy(manualTags = (entry.manualTags + tag).distinctBy(String::lowercase))
-                          entries = entries.map { if (it.id == entry.id) updated else it }
-                          archived = archived.map { if (it.id == entry.id) updated else it }
+                          stateHolder.addManualTag(entry, tag)
                           tagDrafts = tagDrafts - entry.id
-                          persist()
                         }
                       },
                       onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = {
-                        entries = entries.filterNot { it.id == entry.id }
-                        archived = listOf(entry) + archived
-                        persist()
-                      },
-                      onRestore = {
-                        archived = archived.filterNot { it.id == entry.id }
-                        entries = listOf(entry) + entries
-                        persist()
-                      },
+                      onArchive = { stateHolder.archiveEntry(entry) },
+                      onRestore = { stateHolder.restoreEntry(entry) },
                     )
                   }
                 }
@@ -684,11 +574,7 @@ internal fun CafeWebApp() {
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
-            sessionAttemptedIds = sessionAttemptedIds - detailsEntry.id
-            val updated = detailsEntry.copy(taggingModelVersion = null)
-            entries = entries.map { if (it.id == detailsEntry.id) updated else it }
-            archived = archived.map { if (it.id == detailsEntry.id) updated else it }
-            persist()
+            stateHolder.retryClassification(detailsEntry)
           }
           if (desktopLayout) {
             Dialog(onDismissRequest = { selectedDetailsEntryId = null }) {
@@ -1091,90 +977,10 @@ private fun decodeImage(dataUrl: String): ImageBitmap? = runCatching {
   bytes.decodeToImageBitmap()
 }.getOrNull()
 
-private fun readEntries(key: String): List<CafeEntry> =
-  browserStorageRead(key)?.let(::parseEntries).orEmpty()
-
-private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().mapNotNull { line ->
-  val fields = line.split('|')
-  if (fields.size < 8) return@mapNotNull null
-  runCatching {
-    val photos = fields[7].takeIf(String::isNotEmpty)?.split(',').orEmpty().map(::decodeBrowserValue)
-    val primary = decodeBrowserValue(fields[1])
-    CafeEntry(
-      id = decodeBrowserValue(fields[0]),
-      photoPath = primary,
-      venue = decodeBrowserValue(fields[2]),
-      address = decodeBrowserValue(fields[3]),
-      visitedAt = decodeBrowserValue(fields[4]).toLong(),
-      latitude = decodeBrowserValue(fields[5]).toDoubleOrNull(),
-      longitude = decodeBrowserValue(fields[6]).toDoubleOrNull(),
-      photoPaths = photos.ifEmpty { listOf(primary) },
-      manualTags = fields.getOrNull(8)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
-      autoTags = fields.getOrNull(9)?.let(::decodeBrowserValue)?.split(',')?.filter(String::isNotBlank).orEmpty(),
-      taggingModelVersion = fields.getOrNull(10)?.let(::decodeBrowserValue)?.takeIf(String::isNotBlank),
-      classificationRuns = parseClassificationRuns(fields.getOrNull(11)),
-    )
-  }.getOrNull()
-}.toList()
-
-private fun writeEntries(entries: List<CafeEntry>): String = entries.joinToString("\n") { entry ->
-  listOf(
-    entry.id, entry.photoPath, entry.venue, entry.address, entry.visitedAt.toString(),
-    entry.latitude?.toString().orEmpty(), entry.longitude?.toString().orEmpty(), entry.photoPaths.joinToString(","),
-    entry.manualTags.joinToString(","), entry.autoTags.joinToString(","), entry.taggingModelVersion.orEmpty(),
-    serializeClassificationRuns(entry.classificationRuns),
-  ).joinToString("|") { encodeBrowserValue(it) }
-}
-
-private fun serializeClassificationRuns(runs: List<ClassificationRun>): String = runs.joinToString("\u001e") { run ->
-  listOf(
-    run.occurredAt.toString(), run.modelVersion, run.photoCount.toString(), run.durationMillis.toString(), run.outcome,
-    run.labels.joinToString("\u001d") { "${encodeBrowserValue(it.name)}\u001c${it.confidence}" },
-    run.errorMessage.orEmpty(),
-  ).joinToString("\u001f") { encodeBrowserValue(it) }
-}
-
-private fun parseClassificationRuns(encoded: String?): List<ClassificationRun> {
-  val data = encoded?.let(::decodeBrowserValue).orEmpty()
-  if (data.isEmpty()) return emptyList()
-  return data.split("\u001e").mapNotNull { rawRun ->
-    runCatching {
-      val fields = rawRun.split("\u001f").map(::decodeBrowserValue)
-      val labels = fields.getOrNull(5).orEmpty().split("\u001d").filter(String::isNotBlank).mapNotNull { rawLabel ->
-        val tagFields = rawLabel.split("\u001c")
-        val name = tagFields.firstOrNull()?.let(::decodeBrowserValue).orEmpty()
-        val confidence = tagFields.getOrNull(1)?.toFloatOrNull() ?: return@mapNotNull null
-        FoodLabel(name, confidence)
-      }
-      ClassificationRun(
-        occurredAt = fields[0].toLong(),
-        modelVersion = fields[1],
-        photoCount = fields[2].toInt(),
-        durationMillis = fields[3].toLong(),
-        outcome = fields[4],
-        labels = labels,
-        errorMessage = fields.getOrNull(6)?.takeIf(String::isNotBlank),
-      )
-    }.getOrNull()
-  }
-}
-
 private fun decodePhotoSelection(value: String): List<String> = value.lineSequence()
   .filter(String::isNotBlank)
   .map(::decodeBrowserValue)
   .toList()
-
-private fun chooseCafe(cafes: List<CafeCandidate>, position: UserPosition): CafeCandidate? {
-  if (!position.accuracyMeters.isFinite() || position.accuracyMeters > 35f) return null
-  val ranked = cafes.mapNotNull { candidate -> candidate.distanceFrom(position)?.let { candidate to it } }
-    .sortedBy { it.second }
-  val first = ranked.firstOrNull() ?: return null
-  val maxDistance = maxOf(25f, position.accuracyMeters * 2f)
-  if (first.second > maxDistance) return null
-  val second = ranked.getOrNull(1)
-  val requiredGap = maxOf(20f, position.accuracyMeters * 1.5f)
-  return if (second == null || second.second - first.second >= requiredGap) first.first else null
-}
 
 private fun Double.format(digits: Int): String = toString().let { value ->
   val dot = value.indexOf('.')

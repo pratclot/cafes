@@ -6,17 +6,17 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 
 `cafes` is a Kotlin/Compose application for logging cafe visits with camera capture, photo picking, automatic/manual location detection, and on-device/in-browser food tagging. It targets:
 - **Android** (`:app`, `:feature:cafe-log`, `:core:*`)
-- **Web (Kotlin/WasmJS)** (`:webApp`, `:core:model`, `:core:passthrough`)
+- **Web (Kotlin/WasmJS)** (`:webApp`, `:core:model`, `:core:data`, `:core:passthrough`)
 
 ## Module Structure
 
 - `:app` — Android application entry point (`MainActivity`), edge-to-edge setup, and theme/navigation host.
 - `:feature:cafe-log` — Android feature module containing the main UI (`MainScreen.kt`), CameraX preview (`CameraPreview.kt`), Navigation 3 + `ListDetailSceneStrategy` (`CafeLogNavigation.kt`), `CafeLogViewModel`, and unit/UI tests.
-- `:core:model` — Kotlin Multiplatform (`android`, `wasmJs`) domain models shared between Android and Web.
+- `:core:model` — Kotlin Multiplatform (`android`, `wasmJs`) domain models and platform boundary interfaces (`FoodTaggerFacade`, `CafeLocationFacades`, `LocationFacade`, `AddressLookupFacade`, `NearbyCafeFacade`) shared between Android and Web.
 - `:core:passthrough` — Kotlin Multiplatform (`android`, `wasmJs`) dependency passthrough module exposing common cross-platform dependencies (e.g. `kotlinx-coroutines-core`) via `api(...)`.
 - `:core:passthrough-android` — Android library passthrough module exposing `api(project(":core:passthrough"))` plus shared Android/Compose/Lifecycle/Navigation 3/Adaptive dependencies via `api(...)`.
 - `:core:designsystem` — Android Material 3 theme, colors, and typography (`ComPratclotCafesTheme`).
-- `:core:data` — Android visit repository/storage.
+- `:core:data` — Kotlin Multiplatform (`android`, `wasmJs`) data and shared state module containing `CafeLogRepository`, `CafeEntryListOps`, `InMemoryCafeLogRepository`, `CafeLogStateHolder` (`commonMain`), and Android `LocalCafeLogRepository` (`androidMain`).
 - `:core:location` — Android location detection (`play-services-location`).
 - `:core:recognition` — Android food tagging (`play-services-litert` / LiteRT).
 - `:webApp` — Kotlin/WasmJS Compose Multiplatform web app (`CafeWebApp.kt`), browser interop (`BrowserInterop.kt`), and Web Worker food classification (`food-classifier-worker.js`).

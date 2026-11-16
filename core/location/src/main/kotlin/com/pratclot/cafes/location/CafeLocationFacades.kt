@@ -8,7 +8,11 @@ import android.location.Location
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import com.pratclot.cafes.core.model.AddressLookupFacade
 import com.pratclot.cafes.core.model.CafeCandidate
+import com.pratclot.cafes.core.model.CafeLocationFacades
+import com.pratclot.cafes.core.model.LocationFacade
+import com.pratclot.cafes.core.model.NearbyCafeFacade
 import com.pratclot.cafes.core.model.UserPosition
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.CurrentLocationRequest
@@ -35,35 +39,11 @@ import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Facade for foreground-only location updates. */
-interface LocationFacade {
-  fun observeWhileInUse(): Flow<UserPosition>
-  suspend fun refresh(): UserPosition?
-}
-
-/** Facade for turning coordinates into a readable street/locality hint. */
-interface AddressLookupFacade {
-  suspend fun describe(position: UserPosition): String?
-}
-
-/** Facade for finding cafe candidates near a coordinate. */
-interface NearbyCafeFacade {
-  suspend fun findNearby(position: UserPosition): List<CafeCandidate>
-}
-
-data class CafeLocationFacades(
-  val location: LocationFacade,
-  val address: AddressLookupFacade,
-  val cafes: NearbyCafeFacade,
-) {
-  companion object {
-    fun create(context: Context): CafeLocationFacades = CafeLocationFacades(
-      location = PlayServicesLocationFacade(context),
-      address = AndroidAddressLookupFacade(context),
-      cafes = OpenStreetMapCafeFacade(),
-    )
-  }
-}
+fun CafeLocationFacades.Companion.create(context: Context): CafeLocationFacades = CafeLocationFacades(
+  location = PlayServicesLocationFacade(context),
+  address = AndroidAddressLookupFacade(context),
+  cafes = OpenStreetMapCafeFacade(),
+)
 
 private class PlayServicesLocationFacade(context: Context) : LocationFacade {
   private val client = LocationServices.getFusedLocationProviderClient(context.applicationContext)

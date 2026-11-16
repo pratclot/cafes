@@ -1,22 +1,27 @@
 plugins {
-  alias(libs.plugins.android.library)
+  alias(libs.plugins.kotlin.multiplatform)
+  alias(libs.plugins.android.kotlin.multiplatform.library)
 }
 
-android {
-  namespace = "com.pratclot.cafes.core.data"
-  compileSdk = 37
-
-  defaultConfig { minSdk = 24 }
-
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+  @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+  wasmJs {
+    browser()
   }
-}
 
-kotlin { jvmToolchain(17) }
+  android {
+    namespace = "com.pratclot.cafes.core.data"
+    compileSdk = 37
+    minSdk = 24
+    compilerOptions {
+      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+  }
 
-dependencies {
-  api(project(":core:model"))
-  implementation(project(":core:passthrough"))
+  sourceSets {
+    commonMain.dependencies {
+      api(project(":core:model"))
+      implementation(project(":core:passthrough"))
+    }
+  }
 }

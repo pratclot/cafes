@@ -1,16 +1,17 @@
 package com.pratclot.cafes.ui.main
 
 import com.google.common.truth.Truth.assertThat
+import com.pratclot.cafes.core.model.AddressLookupFacade
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
+import com.pratclot.cafes.core.model.CafeLocationFacades
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.FoodTaggerFacade
+import com.pratclot.cafes.core.model.LocationFacade
+import com.pratclot.cafes.core.model.NearbyCafeFacade
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.data.CafeLogRepository
-import com.pratclot.cafes.location.AddressLookupFacade
-import com.pratclot.cafes.location.CafeLocationFacades
-import com.pratclot.cafes.location.LocationFacade
-import com.pratclot.cafes.location.NearbyCafeFacade
+import com.pratclot.cafes.data.chooseUnambiguousCafe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow

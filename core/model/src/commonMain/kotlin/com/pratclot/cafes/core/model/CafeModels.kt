@@ -1,5 +1,7 @@
 package com.pratclot.cafes.core.model
 
+import kotlinx.coroutines.flow.Flow
+
 /** A saved cafe visit. The first photo path remains as a compatibility field for older records. */
 data class CafeEntry(
   val id: String,
@@ -62,4 +64,28 @@ data class CafeCandidate(
 ) {
   fun distanceFrom(position: UserPosition): Float? =
     if (latitude == null || longitude == null) null else position.distanceTo(latitude, longitude)
+}
+
+/** Facade for foreground-only location updates. */
+interface LocationFacade {
+  fun observeWhileInUse(): Flow<UserPosition>
+  suspend fun refresh(): UserPosition?
+}
+
+/** Facade for turning coordinates into a readable street/locality hint. */
+interface AddressLookupFacade {
+  suspend fun describe(position: UserPosition): String?
+}
+
+/** Facade for finding cafe candidates near a coordinate. */
+interface NearbyCafeFacade {
+  suspend fun findNearby(position: UserPosition): List<CafeCandidate>
+}
+
+data class CafeLocationFacades(
+  val location: LocationFacade,
+  val address: AddressLookupFacade,
+  val cafes: NearbyCafeFacade,
+) {
+  companion object
 }
