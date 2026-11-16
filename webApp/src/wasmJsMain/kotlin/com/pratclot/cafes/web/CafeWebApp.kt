@@ -80,6 +80,7 @@ import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.data.CafeLogStateHolder
+import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -175,7 +176,7 @@ internal fun CafeWebApp() {
 
   LaunchedEffect(stateHolder) { stateHolder.refreshLocation() }
 
-  MaterialTheme {
+  ComPratclotCafesTheme(darkTheme = false) {
     Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
       BoxWithConstraints(Modifier.fillMaxSize()) {
         val desktopLayout = maxWidth >= 900.dp

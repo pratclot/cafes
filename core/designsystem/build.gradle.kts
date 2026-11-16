@@ -1,24 +1,33 @@
 plugins {
-  alias(libs.plugins.android.library)
+  alias(libs.plugins.kotlin.multiplatform)
+  alias(libs.plugins.android.kotlin.multiplatform.library)
+  alias(libs.plugins.compose.multiplatform)
   alias(libs.plugins.compose.compiler)
 }
 
-android {
-  namespace = "com.pratclot.cafes.core.designsystem"
-  compileSdk = 37
-
-  defaultConfig { minSdk = 24 }
-
-  buildFeatures { compose = true }
-
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+kotlin {
+  @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+  wasmJs {
+    browser()
   }
-}
 
-kotlin { jvmToolchain(17) }
+  android {
+    namespace = "com.pratclot.cafes.core.designsystem"
+    compileSdk = 37
+    minSdk = 24
+    androidResources.enable = true
+    compilerOptions {
+      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+  }
 
-dependencies {
-  implementation(project(":core:passthrough-android"))
+  sourceSets {
+    commonMain.dependencies {
+      implementation(project(":core:passthrough"))
+      implementation(compose.runtime)
+      implementation(compose.foundation)
+      implementation(compose.material3)
+      implementation(compose.ui)
+    }
+  }
 }

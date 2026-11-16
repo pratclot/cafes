@@ -6,7 +6,7 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 
 `cafes` is a Kotlin/Compose application for logging cafe visits with camera capture, photo picking, automatic/manual location detection, and on-device/in-browser food tagging. It targets:
 - **Android** (`:app`, `:feature:cafe-log`, `:core:*`)
-- **Web (Kotlin/WasmJS)** (`:webApp`, `:core:model`, `:core:data`, `:core:passthrough`)
+- **Web (Kotlin/WasmJS)** (`:webApp`, `:core:model`, `:core:data`, `:core:designsystem`, `:core:passthrough`)
 
 ## Module Structure
 
@@ -15,7 +15,7 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 - `:core:model` — Kotlin Multiplatform (`android`, `wasmJs`) domain models and platform boundary interfaces (`FoodTaggerFacade`, `CafeLocationFacades`, `LocationFacade`, `AddressLookupFacade`, `NearbyCafeFacade`) shared between Android and Web.
 - `:core:passthrough` — Kotlin Multiplatform (`android`, `wasmJs`) dependency passthrough module exposing common cross-platform dependencies (e.g. `kotlinx-coroutines-core`) via `api(...)`.
 - `:core:passthrough-android` — Android library passthrough module exposing `api(project(":core:passthrough"))` plus shared Android/Compose/Lifecycle/Navigation 3/Adaptive dependencies via `api(...)`.
-- `:core:designsystem` — Android Material 3 theme, colors, and typography (`ComPratclotCafesTheme`).
+- `:core:designsystem` — Kotlin Multiplatform (`android`, `wasmJs`) Material 3 theme, colors, and typography (`ComPratclotCafesTheme`), with Android 12+ dynamic color in `androidMain`.
 - `:core:data` — Kotlin Multiplatform (`android`, `wasmJs`) data and shared state module containing `CafeLogRepository`, `CafeEntryListOps`, `InMemoryCafeLogRepository`, `CafeLogStateHolder` (`commonMain`), and Android `LocalCafeLogRepository` (`androidMain`).
 - `:core:location` — Android location detection (`play-services-location`).
 - `:core:recognition` — Android food tagging (`play-services-litert` / LiteRT).

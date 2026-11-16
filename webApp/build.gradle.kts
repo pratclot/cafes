@@ -18,6 +18,7 @@ kotlin {
       implementation(project(":core:passthrough"))
       implementation(project(":core:model"))
       implementation(project(":core:data"))
+      implementation(project(":core:designsystem"))
       implementation(compose.runtime)
       implementation(compose.foundation)
       implementation(compose.animation)
