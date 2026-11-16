@@ -80,7 +80,9 @@ import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.data.CafeLogStateHolder
+import com.pratclot.cafes.ui.SharedCompactLocationBar
 import com.pratclot.cafes.ui.SharedVisitDetailsContent
+import com.pratclot.cafes.ui.SharedVisitEntryCard
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import kotlin.io.encoding.Base64
@@ -625,88 +627,21 @@ private fun CompactLocationBar(
   onApplyManualCafe: () -> Unit,
   onAddPhotos: () -> Unit,
 ) {
-  val activeLabel = when {
-    selectedCafe != null -> "${selectedCafe.name}${selectedCafe.address?.takeIf(String::isNotBlank)?.let { " · $it" } ?: ""}"
-    manualCafe.isNotBlank() -> manualCafe.trim()
-    else -> locationMessage
-  }
-  Column(Modifier.fillMaxWidth()) {
-    Surface(
-      Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onToggleEditing),
-      shape = RoundedCornerShape(12.dp),
-      color = Color(0xFFF2E8DE),
-    ) {
-      Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        Text(
-          "📍 $activeLabel",
-          style = MaterialTheme.typography.bodyMedium,
-          fontWeight = if (selectedCafe != null || manualCafe.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal,
-          color = Color(0xFF3E342C),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-          modifier = Modifier.weight(1f),
-        )
-        TextButton(
-          onClick = onToggleEditing,
-          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        ) {
-          Text(if (editing) "Done" else "Change")
-        }
-        TextButton(
-          onClick = onRefresh,
-          enabled = !loadingLocation,
-          contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        ) {
-          Text(if (loadingLocation) "…" else "↻")
-        }
-        if (showAddPhotosAction) {
-          Button(
-            onClick = onAddPhotos,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-          ) {
-            Text("+ Add photos")
-          }
-        }
-      }
-    }
-    if (editing) {
-      Card(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Column(
-          Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(12.dp),
-          verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-          Text(locationMessage, style = MaterialTheme.typography.bodySmall, color = Color(0xFF5E554D))
-          if (cafes.isNotEmpty()) {
-            Text("Nearby cafes", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            cafes.take(6).forEach { cafe ->
-              TextButton(
-                onClick = { onSelectCafe(cafe) },
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-              ) {
-                Text("${if (selectedCafe?.id == cafe.id) "✓ " else ""}${cafe.name}${cafe.address?.let { " · $it" } ?: ""}")
-              }
-            }
-          }
-          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-              value = manualCafe,
-              onValueChange = onManualCafeChange,
-              label = { Text("Custom cafe name") },
-              singleLine = true,
-              modifier = Modifier.weight(1f),
-            )
-            if (manualCafe.isNotBlank()) {
-              OutlinedButton(onClick = onApplyManualCafe) { Text("Use") }
-            }
-          }
-        }
-      }
-    }
-  }
+  SharedCompactLocationBar(
+    selectedCafe = selectedCafe,
+    manualCafe = manualCafe,
+    locationMessage = locationMessage,
+    loadingLocation = loadingLocation,
+    cafes = cafes,
+    editing = editing,
+    showAddPhotosAction = showAddPhotosAction,
+    onToggleEditing = onToggleEditing,
+    onRefresh = onRefresh,
+    onSelectCafe = onSelectCafe,
+    onManualCafeChange = onManualCafeChange,
+    onApplyManualCafe = onApplyManualCafe,
+    onAddPhotos = onAddPhotos,
+  )
 }
 
 @Composable
@@ -725,148 +660,23 @@ private fun VisitCard(
   onArchive: () -> Unit,
   onRestore: () -> Unit,
 ) {
-  var photoIndex by remember(entry.id) { mutableIntStateOf(0) }
-  val photos = entry.photoPaths.ifEmpty { listOf(entry.photoPath) }
-  LaunchedEffect(entry.id, photos.size) {
-    while (photos.size > 1) {
-      kotlinx.coroutines.delay(3200)
-      photoIndex = (photoIndex + 1) % photos.size
-    }
-  }
-
-  val swipeOffset = remember(entry.id) { Animatable(0f) }
-  var dragOffset by remember(entry.id) { mutableFloatStateOf(0f) }
-  var dragging by remember(entry.id) { mutableStateOf(false) }
-  var cardWidthPx by remember(entry.id) { mutableFloatStateOf(1f) }
-  val scope = rememberCoroutineScope()
-  val offset = if (dragging) dragOffset else swipeOffset.value
-  val swipeProgress = (-offset / cardWidthPx).coerceIn(0f, 1f)
-  val actionColor = if (archived) Color(0xFF477A58) else Color(0xFFC62828)
-
-  Box(
-    Modifier.fillMaxWidth()
-      .clip(RoundedCornerShape(12.dp))
-      .semantics {
-        customActions = listOf(
-          CustomAccessibilityAction(
-            label = if (archived) "Restore visit" else "Archive visit",
-            action = {
-              if (archived) onRestore() else onArchive()
-              true
-            },
-          ),
-        )
-      }
-      .onSizeChanged { cardWidthPx = it.width.toFloat().coerceAtLeast(1f) },
-  ) {
-    Card(
-      Modifier.fillMaxWidth()
-      .offset { IntOffset(offset.roundToInt(), 0) },
-    ) {
-      Box {
-        Column {
-          Box(
-            Modifier.fillMaxWidth().height(220.dp).then(
-              if (swipeEnabled) Modifier.pointerInput(entry.id, archived, cardWidthPx) {
-                detectHorizontalDragGestures(
-                  onHorizontalDrag = { change, dragAmount ->
-                    change.consume()
-                    dragging = true
-                    dragOffset = (dragOffset + dragAmount).coerceIn(-cardWidthPx, 0f)
-                  },
-                  onDragEnd = {
-                    scope.launch {
-                      swipeOffset.snapTo(dragOffset)
-                      dragging = false
-                      if (dragOffset < -cardWidthPx * 0.38f) {
-                        swipeOffset.animateTo(-cardWidthPx, tween(190))
-                        if (archived) onRestore() else onArchive()
-                      } else {
-                        swipeOffset.animateTo(0f, tween(220))
-                      }
-                      dragOffset = 0f
-                    }
-                  },
-                  onDragCancel = {
-                    scope.launch {
-                      swipeOffset.snapTo(dragOffset)
-                      dragging = false
-                      swipeOffset.animateTo(0f, tween(220))
-                      dragOffset = 0f
-                    }
-                  },
-                )
-              } else Modifier,
-            ),
-          ) {
-            Crossfade(
-              targetState = photos[photoIndex % photos.size],
-              modifier = Modifier.fillMaxSize(),
-              animationSpec = tween(700),
-              label = "visit-photo",
-            ) { photo ->
-              BrowserPhoto(photo, Modifier.fillMaxSize())
-            }
-          }
-          Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Column(Modifier.weight(1f)) {
-                Text(entry.venue, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                if (entry.address.isNotBlank()) Text(entry.address, color = Color(0xFF6E6258))
-                Text(browserFormatDate(entry.visitedAt.toDouble()), style = MaterialTheme.typography.labelMedium, color = Color(0xFF81766D))
-              }
-              Column(horizontalAlignment = Alignment.End) {
-                Text("${photoIndex + 1}/${photos.size}", style = MaterialTheme.typography.labelMedium)
-                TextButton(onClick = onDetails) { Text("Details") }
-              }
-            }
-            if (tagging) {
-              Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                CircularProgressIndicator(Modifier.height(16.dp), strokeWidth = 2.dp)
-                Text("Identifying dishes on this device…", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 8.dp), color = Color(0xFF6E6258))
-              }
-            }
-            val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
-            if (tags.isNotEmpty()) {
-              Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(rememberScrollState()),
-              ) {
-                tags.forEach { tag ->
-                  Surface(
-                    modifier = Modifier.clip(RoundedCornerShape(24.dp)).clickable { onTagClick(tag) },
-                    color = Color(0xFFF2E8DE),
-                    shape = RoundedCornerShape(24.dp),
-                  ) {
-                    Text(tag, color = Color(0xFF8D5E3C), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
-                  }
-                }
-              }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-              OutlinedTextField(tagDraft, onTagDraft, modifier = Modifier.weight(1f), label = { Text("Add a dish tag") }, singleLine = true)
-              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text("Add") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
-              OutlinedButton(onClick = onPhotos) { Text("Add photos") }
-              if (showArchiveButton) {
-                if (archived) OutlinedButton(onClick = onRestore) { Text("Restore") }
-                else OutlinedButton(onClick = onArchive) { Text("Archive") }
-              }
-            }
-          }
-        }
-        if (swipeProgress > 0f) {
-          Box(
-            Modifier.matchParentSize().background(actionColor.copy(alpha = swipeProgress)),
-            contentAlignment = Alignment.Center,
-          ) {
-            Text(if (archived) "↶" else "▣", style = MaterialTheme.typography.displaySmall, color = Color.White.copy(alpha = swipeProgress))
-          }
-        }
-      }
-    }
-  }
+  SharedVisitEntryCard(
+    entry = entry,
+    archived = archived,
+    swipeEnabled = swipeEnabled,
+    showArchiveButton = showArchiveButton,
+    tagging = tagging,
+    taggingLabel = "Identifying dishes in browser…",
+    tagDraft = tagDraft,
+    onOpenDetails = onDetails,
+    onTagDraft = onTagDraft,
+    onTagClick = onTagClick,
+    onAddTag = onAddTag,
+    onAddPhotos = onPhotos,
+    onArchive = onArchive,
+    onRestore = onRestore,
+    photoContent = { photo, modifier -> BrowserPhoto(photo, modifier) },
+  )
 }
 
 @Composable

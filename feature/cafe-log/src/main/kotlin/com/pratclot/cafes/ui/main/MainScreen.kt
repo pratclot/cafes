@@ -94,6 +94,7 @@ import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.ui.SharedClassificationSection
+import com.pratclot.cafes.ui.SharedVisitEntryCard
 import com.pratclot.cafes.location.hasLocationPermission
 import com.pratclot.cafes.ui.camera.CameraXPreview
 import com.pratclot.cafes.ui.camera.capturePhoto
@@ -574,12 +575,17 @@ internal fun VisitLogScreen(
             key = { it.id },
             contentType = { "visit_card" },
           ) { entry ->
-            CafeEntryCard(
+            val photos = remember(entry.photoPath, entry.photoPaths) {
+              entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
+            }
+            SharedVisitEntryCard(
               entry = entry,
               archived = showingArchive,
               selected = entry.id == selectedEntryId,
               tagging = entry.id in state.taggingIds,
+              taggingLabel = "Identifying dishes on this device…",
               tagDraft = manualTagDrafts[entry.id].orEmpty(),
+              photoPathsOverride = photos,
               onOpenDetails = { onSelectEntry(entry.id) },
               onTagDraft = { draft -> manualTagDrafts = manualTagDrafts + (entry.id to draft) },
               onTagClick = { tag -> searchQuery = tag },
@@ -590,14 +596,13 @@ internal fun VisitLogScreen(
                   manualTagDrafts = manualTagDrafts - entry.id
                 }
               },
-              onAddPhotos = { target ->
-                photoPickerEntryId = target.id
+              onAddPhotos = {
+                photoPickerEntryId = entry.id
                 photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
               },
-              onAction = {
-                if (showingArchive) viewModel.restoreEntry(entry)
-                else viewModel.archiveEntry(entry)
-              },
+              onArchive = { viewModel.archiveEntry(entry) },
+              onRestore = { viewModel.restoreEntry(entry) },
+              photoContent = { path, modifier -> AsyncLocalPhoto(path = path, modifier = modifier) },
             )
           }
         }
@@ -1033,173 +1038,6 @@ private fun AsyncLocalPhoto(path: String, modifier: Modifier = Modifier) {
       modifier = modifier,
       contentScale = ContentScale.Crop,
     )
-  }
-}
-
-@Composable
-private fun CafeEntryCard(
-  entry: CafeEntry,
-  archived: Boolean,
-  selected: Boolean,
-  tagging: Boolean,
-  tagDraft: String,
-  onOpenDetails: () -> Unit,
-  onTagDraft: (String) -> Unit,
-  onTagClick: (String) -> Unit,
-  onAddTag: () -> Unit,
-  onAddPhotos: (CafeEntry) -> Unit,
-  onAction: () -> Unit,
-) {
-  val photos = remember(entry.photoPath, entry.photoPaths) {
-    entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
-  }
-  var photoIndex by remember(entry.id) { mutableIntStateOf(0) }
-  LaunchedEffect(entry.id, photos) {
-    photoIndex = 0
-    if (photos.size > 1) {
-      while (true) {
-        delay(3_200L)
-        photoIndex = (photoIndex + 1) % photos.size
-      }
-    }
-  }
-
-  val dateFormatter = remember { SimpleDateFormat("EEE, d MMM · HH:mm", Locale.getDefault()) }
-  val density = LocalDensity.current
-  val defaultWidthPx = remember(density) { with(density) { 360.dp.toPx() } }
-  val swipeOffset = remember(entry.id) { Animatable(0f) }
-  var dragOffset by remember(entry.id) { mutableFloatStateOf(0f) }
-  var dragging by remember(entry.id) { mutableStateOf(false) }
-  val scope = rememberCoroutineScope()
-
-  BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))) {
-    val widthPx = with(density) { maxWidth.toPx() }.takeIf { it > 0f } ?: defaultWidthPx
-    val currentOffset = if (dragging) dragOffset else swipeOffset.value
-    val swipeProgress = (-currentOffset / widthPx).coerceIn(0f, 1f)
-    val actionColor = if (archived) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
-    val actionContentColor = if (archived) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onError
-
-    Card(
-      modifier = Modifier
-        .fillMaxWidth()
-        .offset { IntOffset(currentOffset.roundToInt(), 0) }
-        .pointerInput(entry.id, archived, widthPx) {
-          detectHorizontalDragGestures(
-            onHorizontalDrag = { change, dragAmount ->
-              change.consume()
-              dragging = true
-              dragOffset = (dragOffset + dragAmount).coerceIn(-widthPx, 0f)
-            },
-            onDragEnd = {
-              scope.launch {
-                swipeOffset.snapTo(dragOffset)
-                dragging = false
-                if (dragOffset < -widthPx * 0.38f) {
-                  swipeOffset.animateTo(-widthPx, tween(190))
-                  onAction()
-                } else {
-                  swipeOffset.animateTo(0f, tween(220))
-                }
-                dragOffset = 0f
-              }
-            },
-            onDragCancel = {
-              scope.launch {
-                swipeOffset.snapTo(dragOffset)
-                dragging = false
-                swipeOffset.animateTo(0f, tween(220))
-                dragOffset = 0f
-              }
-            },
-          )
-        },
-      shape = RoundedCornerShape(22.dp),
-      colors = CardDefaults.cardColors(
-        containerColor = if (selected) {
-          MaterialTheme.colorScheme.secondaryContainer
-        } else {
-          MaterialTheme.colorScheme.surfaceContainerLow
-        },
-      ),
-    ) {
-      Box {
-        Column {
-          Box(Modifier.fillMaxWidth().height(215.dp).clickable(onClick = onOpenDetails)) {
-            Crossfade(
-              targetState = photos[photoIndex.coerceIn(0, photos.lastIndex)],
-              animationSpec = tween(700),
-              label = "Cafe visit photos",
-            ) { path ->
-              AsyncLocalPhoto(path = path, modifier = Modifier.fillMaxSize())
-            }
-            FilledTonalButton(
-              onClick = { onAddPhotos(entry) },
-              modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            ) { Text("＋ Add photos") }
-          }
-          Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Text(
-                text = entry.venue,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-              )
-              TextButton(onClick = onOpenDetails, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                Text("Details")
-              }
-            }
-            if (entry.address.isNotBlank()) {
-              Text(entry.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(5.dp))
-            Text(
-              dateFormatter.format(Date(entry.visitedAt)),
-              style = MaterialTheme.typography.labelMedium,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (tagging) {
-              Spacer(Modifier.height(8.dp))
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(7.dp))
-                Text("Identifying dishes on this device…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-              }
-            }
-            val tags = remember(entry.autoTags, entry.manualTags) {
-              (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
-            }
-            if (tags.isNotEmpty()) {
-              Spacer(Modifier.height(7.dp))
-              Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                tags.forEach { tag ->
-                  SuggestionChip(onClick = { onTagClick(tag) }, label = { Text(tag) })
-                }
-              }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              OutlinedTextField(value = tagDraft, onValueChange = onTagDraft, modifier = Modifier.weight(1f), label = { Text("Add a dish tag") }, singleLine = true)
-              Spacer(Modifier.width(8.dp))
-              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text("Add") }
-            }
-          }
-        }
-        if (swipeProgress > 0f) {
-          Box(
-            Modifier.matchParentSize().background(actionColor.copy(alpha = swipeProgress)),
-            contentAlignment = Alignment.Center,
-          ) {
-            Text(
-              if (archived) "↶" else "▣",
-              style = MaterialTheme.typography.displaySmall,
-              color = actionContentColor.copy(alpha = swipeProgress),
-            )
-          }
-        }
-      }
-    }
   }
 }
 

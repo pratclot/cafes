@@ -16,7 +16,7 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 - `:core:passthrough` — Kotlin Multiplatform (`android`, `wasmJs`) dependency passthrough module exposing common cross-platform dependencies (e.g. `kotlinx-coroutines-core`) via `api(...)`.
 - `:core:passthrough-android` — Android library passthrough module exposing `api(project(":core:passthrough"))` plus shared Android/Compose/Lifecycle/Navigation 3/Adaptive dependencies via `api(...)`.
 - `:core:designsystem` — Kotlin Multiplatform (`android`, `wasmJs`) Material 3 theme, colors, and typography (`ComPratclotCafesTheme`), with Android 12+ dynamic color in `androidMain`.
-- `:core:ui` — Kotlin Multiplatform (`android`, `wasmJs`) shared Compose Multiplatform UI components (`SharedVisitDetailsContent`, `SharedClassificationSection`, `ClassificationRunDetails`, `formatTimestamp`, `formatCoordinate`).
+- `:core:ui` — Kotlin Multiplatform (`android`, `wasmJs`) shared Compose Multiplatform UI components (`SharedVisitEntryCard`, `SharedCompactLocationBar`, `SharedVisitDetailsContent`, `SharedClassificationSection`, `ClassificationRunDetails`, `formatTimestamp`, `formatCoordinate`).
 - `:core:data` — Kotlin Multiplatform (`android`, `wasmJs`) data and shared state module containing `CafeLogRepository`, `CafeEntryListOps`, `InMemoryCafeLogRepository`, `CafeLogStateHolder` (`commonMain`), and Android `LocalCafeLogRepository` (`androidMain`).
 - `:core:location` — Android location detection (`play-services-location`).
 - `:core:recognition` — Android food tagging (`play-services-litert` / LiteRT).
