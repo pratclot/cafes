@@ -15,6 +15,7 @@ kotlin {
     namespace = "com.pratclot.cafes.core.ui"
     compileSdk = 37
     minSdk = 24
+    androidResources.enable = true
     compilerOptions {
       jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
@@ -31,6 +32,12 @@ kotlin {
       implementation(compose.foundation)
       implementation(compose.material3)
       implementation(compose.ui)
+      api(compose.components.resources)
     }
   }
+}
+
+compose.resources {
+  publicResClass = true
+  packageOfResClass = "com.pratclot.cafes.core.ui.generated.resources"
 }

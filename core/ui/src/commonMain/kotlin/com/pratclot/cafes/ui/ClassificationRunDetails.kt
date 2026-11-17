@@ -22,24 +22,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.ClassificationRun
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.classification_current_model
+import com.pratclot.cafes.core.ui.generated.resources.classification_detected_labels
+import com.pratclot.cafes.core.ui.generated.resources.classification_error
+import com.pratclot.cafes.core.ui.generated.resources.classification_heading
+import com.pratclot.cafes.core.ui.generated.resources.classification_label_confidence
+import com.pratclot.cafes.core.ui.generated.resources.classification_legacy_history
+import com.pratclot.cafes.core.ui.generated.resources.classification_no_detections
+import com.pratclot.cafes.core.ui.generated.resources.classification_none_yet
+import com.pratclot.cafes.core.ui.generated.resources.classification_retry
+import com.pratclot.cafes.core.ui.generated.resources.classification_run_history
+import com.pratclot.cafes.core.ui.generated.resources.classification_run_summary
+import com.pratclot.cafes.core.ui.generated.resources.classification_running
+import com.pratclot.cafes.core.ui.generated.resources.photo_count
+import com.pratclot.cafes.core.ui.generated.resources.visit_location
+import com.pratclot.cafes.core.ui.generated.resources.visit_tags_heading
+import com.pratclot.cafes.core.ui.generated.resources.visit_visited_at
+import org.jetbrains.compose.resources.pluralStringResource
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun ClassificationRunDetails(run: ClassificationRun) {
   Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
     Text(formatTimestamp(run.occurredAt), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
     val summary = when (run.outcome) {
-      "ERROR" -> "Processing error"
-      "NO_DETECTIONS" -> "Nothing detected"
-      else -> "Detected ${run.labels.size} label${if (run.labels.size == 1) "" else "s"}"
+      "ERROR" -> stringResource(Res.string.classification_error)
+      "NO_DETECTIONS" -> stringResource(Res.string.classification_no_detections)
+      else -> pluralStringResource(Res.plurals.classification_detected_labels, run.labels.size, run.labels.size)
     }
+    val photoText = pluralStringResource(Res.plurals.photo_count, run.photoCount, run.photoCount)
     Text(
-      "$summary · ${run.photoCount} photo${if (run.photoCount == 1) "" else "s"} · ${run.durationMillis} ms · ${run.modelVersion}",
+      stringResource(Res.string.classification_run_summary, summary, photoText, run.durationMillis, run.modelVersion),
       style = MaterialTheme.typography.bodySmall,
       color = if (run.outcome == "ERROR") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
     )
     if (run.labels.isNotEmpty()) {
+      val formattedLabels = run.labels.map {
+        stringResource(Res.string.classification_label_confidence, it.name, (it.confidence * 100).toInt())
+      }.joinToString(" · ")
       Text(
-        run.labels.joinToString(" · ") { "${it.name} (${(it.confidence * 100).toInt()}%)" },
+        formattedLabels,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.primary,
       )
@@ -67,7 +90,7 @@ fun SharedVisitDetailsContent(
           TextButton(onClick = onClose) { Text(closeLabel) }
           Spacer(Modifier.weight(1f))
           Text(
-            "${entry.photoPaths.size} photo${if (entry.photoPaths.size == 1) "" else "s"}",
+            pluralStringResource(Res.plurals.photo_count, entry.photoPaths.size, entry.photoPaths.size),
             style = MaterialTheme.typography.labelMedium,
           )
         }
@@ -77,20 +100,25 @@ fun SharedVisitDetailsContent(
         Text(entry.address, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
       Text(
-        "Visited ${formatTimestamp(entry.visitedAt)}",
+        stringResource(Res.string.visit_visited_at, formatTimestamp(entry.visitedAt)),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
       if (latitude != null && longitude != null) {
         Text(
-          "Location: ${formatCoordinate(latitude)}, ${formatCoordinate(longitude)}",
+          stringResource(Res.string.visit_location, formatCoordinate(latitude), formatCoordinate(longitude)),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
       val tags = (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
       if (tags.isNotEmpty()) {
-        Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+        Text(
+          stringResource(Res.string.visit_tags_heading),
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.SemiBold,
+          modifier = Modifier.padding(top = 8.dp),
+        )
         Text(tags.joinToString(" · "), color = MaterialTheme.colorScheme.primary)
       }
       HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -111,9 +139,9 @@ fun SharedClassificationSection(
   tagging: Boolean,
   onRetryClassification: () -> Unit,
 ) {
-  Text("Automatic classification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+  Text(stringResource(Res.string.classification_heading), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
   Text(
-    "Current model: $currentModelVersion",
+    stringResource(Res.string.classification_current_model, currentModelVersion),
     style = MaterialTheme.typography.bodySmall,
     color = MaterialTheme.colorScheme.onSurfaceVariant,
   )
@@ -121,20 +149,23 @@ fun SharedClassificationSection(
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
       Text(
-        "Classification running…",
+        stringResource(Res.string.classification_running),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
   }
-  Text("Run history (${entry.classificationRuns.size})", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+  Text(
+    stringResource(Res.string.classification_run_history, entry.classificationRuns.size),
+    style = MaterialTheme.typography.labelLarge,
+    modifier = Modifier.padding(top = 4.dp),
+  )
   if (entry.classificationRuns.isEmpty()) {
     Text(
-      if (entry.taggingModelVersion == null) {
-        "No classification runs recorded yet."
-      } else {
-        "This visit was classified before run history was saved."
-      },
+      stringResource(
+        if (entry.taggingModelVersion == null) Res.string.classification_none_yet
+        else Res.string.classification_legacy_history,
+      ),
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -148,6 +179,10 @@ fun SharedClassificationSection(
     enabled = !tagging,
     modifier = Modifier.padding(top = 8.dp),
   ) {
-    Text(if (tagging) "Classification running…" else "Run classification again")
+    Text(
+      stringResource(
+        if (tagging) Res.string.classification_running else Res.string.classification_retry,
+      ),
+    )
   }
 }

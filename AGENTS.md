@@ -50,4 +50,5 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 
 - Android navigation uses Navigation 3 (`NavDisplay`, `rememberNavBackStack`, `ListDetailSceneStrategy`) with `EdgeToEdge` and IME inset handling.
 - Web food recognition runs in a Web Worker (`webApp/src/wasmJsMain/resources/food-classifier-worker.js`) so the UI thread stays responsive.
-- Android and Web UI are currently separate (`:feature:cafe-log` vs. `:webApp`); when adding shared domain models, place them in `:core:model`, and prefer extracting platform-agnostic logic into KMP modules when practical.
+- Android and Web UI are currently separate (`:feature:cafe-log` vs. `:webApp`); when adding shared domain models, place them in `:core:model`, and prefer extracting platform-agnostic logic and shared UI into KMP modules (`:core:data`, `:core:ui`) when practical.
+- Extract user-facing UI strings into Compose Multiplatform resources (`core/ui/src/commonMain/composeResources/values/strings.xml`) via `stringResource(...)` / `pluralStringResource(...)` rather than hardcoding literals in composables.

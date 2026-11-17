@@ -93,8 +93,38 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.UserPosition
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_add
+import com.pratclot.cafes.core.ui.generated.resources.action_add_photo_short
+import com.pratclot.cafes.core.ui.generated.resources.action_add_photos
+import com.pratclot.cafes.core.ui.generated.resources.action_back
+import com.pratclot.cafes.core.ui.generated.resources.action_back_to_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_change
+import com.pratclot.cafes.core.ui.generated.resources.action_details
+import com.pratclot.cafes.core.ui.generated.resources.action_from_disk
+import com.pratclot.cafes.core.ui.generated.resources.action_log_short
+import com.pratclot.cafes.core.ui.generated.resources.action_take_first_photo
+import com.pratclot.cafes.core.ui.generated.resources.action_take_photo
+import com.pratclot.cafes.core.ui.generated.resources.action_use_this_cafe
+import com.pratclot.cafes.core.ui.generated.resources.action_visit_log_count
+import com.pratclot.cafes.core.ui.generated.resources.detail_placeholder_title
+import com.pratclot.cafes.core.ui.generated.resources.detail_visit_not_found
+import com.pratclot.cafes.core.ui.generated.resources.empty_archive_subtitle
+import com.pratclot.cafes.core.ui.generated.resources.empty_archive_title
+import com.pratclot.cafes.core.ui.generated.resources.empty_log_subtitle
+import com.pratclot.cafes.core.ui.generated.resources.empty_log_title
+import com.pratclot.cafes.core.ui.generated.resources.empty_search_subtitle
+import com.pratclot.cafes.core.ui.generated.resources.empty_search_title
+import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes_on_device
+import com.pratclot.cafes.core.ui.generated.resources.location_enter_cafe_name
+import com.pratclot.cafes.core.ui.generated.resources.location_looking_nearby
+import com.pratclot.cafes.core.ui.generated.resources.location_which_cafe
+import com.pratclot.cafes.core.ui.generated.resources.search_label
+import com.pratclot.cafes.core.ui.generated.resources.search_placeholder
+import com.pratclot.cafes.core.ui.generated.resources.visit_tag_input_label
 import com.pratclot.cafes.ui.SharedClassificationSection
 import com.pratclot.cafes.ui.SharedVisitEntryCard
+import org.jetbrains.compose.resources.stringResource
 import com.pratclot.cafes.location.hasLocationPermission
 import com.pratclot.cafes.ui.camera.CameraXPreview
 import com.pratclot.cafes.ui.camera.capturePhoto
@@ -252,7 +282,7 @@ internal fun CameraCaptureScreen(
           onClick = onOpenVisitLog,
           contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         ) {
-          Text("Visit log (${state.entries.size}) →", style = MaterialTheme.typography.labelLarge)
+          Text(stringResource(Res.string.action_visit_log_count, state.entries.size), style = MaterialTheme.typography.labelLarge)
         }
       }
 
@@ -318,19 +348,19 @@ internal fun CameraCaptureScreen(
               },
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
             ) {
-              Text("+ Photo", style = MaterialTheme.typography.labelMedium)
+              Text(stringResource(Res.string.action_add_photo_short), style = MaterialTheme.typography.labelMedium)
             }
             TextButton(
               onClick = { onOpenDetails(recentSaved.id) },
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
             ) {
-              Text("Details", style = MaterialTheme.typography.labelMedium)
+              Text(stringResource(Res.string.action_details), style = MaterialTheme.typography.labelMedium)
             }
             TextButton(
               onClick = onOpenVisitLog,
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
             ) {
-              Text("Log →", style = MaterialTheme.typography.labelMedium)
+              Text(stringResource(Res.string.action_log_short), style = MaterialTheme.typography.labelMedium)
             }
           }
         }
@@ -348,7 +378,7 @@ internal fun CameraCaptureScreen(
           },
           modifier = Modifier.height(50.dp),
         ) {
-          Text("From disk")
+          Text(stringResource(Res.string.action_from_disk))
         }
         Button(
           onClick = requestCapture,
@@ -358,7 +388,7 @@ internal fun CameraCaptureScreen(
             .semantics(mergeDescendants = true) {},
           shape = RoundedCornerShape(27.dp),
         ) {
-          Text("● Take photo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+          Text(stringResource(Res.string.action_take_photo), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
         OutlinedButton(
           onClick = {
@@ -492,7 +522,7 @@ internal fun VisitLogScreen(
             onClick = onBackToCamera,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
           ) {
-            Text("← Camera", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(Res.string.action_back_to_camera), style = MaterialTheme.typography.labelLarge)
           }
           Text(
             text = if (showingArchive) "Archived visits" else "Visit log",
@@ -533,8 +563,8 @@ internal fun VisitLogScreen(
         value = searchQuery,
         onValueChange = { searchQuery = it },
         modifier = Modifier.fillMaxWidth(),
-        label = { Text("Search cafes and dishes") },
-        placeholder = { Text("Try “Galette”") },
+        label = { Text(stringResource(Res.string.search_label)) },
+        placeholder = { Text(stringResource(Res.string.search_placeholder)) },
         singleLine = true,
       )
       Spacer(Modifier.height(10.dp))
@@ -546,9 +576,9 @@ internal fun VisitLogScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
           ) {
-            Text("No archived visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(Res.string.empty_archive_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
-            Text("Visits you archive will be kept here.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(Res.string.empty_archive_subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
           }
         } else if (visibleEntries.isEmpty() && searchQuery.isBlank()) {
           EmptyLog(Modifier.weight(1f), onCapture = onBackToCamera)
@@ -558,8 +588,8 @@ internal fun VisitLogScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
           ) {
-            Text("No matching visits", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("Search by cafe name or a dish in your photos.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(Res.string.empty_search_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(Res.string.empty_search_subtitle), color = MaterialTheme.colorScheme.onSurfaceVariant)
           }
         }
       } else {
@@ -583,7 +613,7 @@ internal fun VisitLogScreen(
               archived = showingArchive,
               selected = entry.id == selectedEntryId,
               tagging = entry.id in state.taggingIds,
-              taggingLabel = "Identifying dishes on this device…",
+              taggingLabel = stringResource(Res.string.identifying_dishes_on_device),
               tagDraft = manualTagDrafts[entry.id].orEmpty(),
               photoPathsOverride = photos,
               onOpenDetails = { onSelectEntry(entry.id) },
@@ -683,9 +713,9 @@ internal fun VisitDetailScreen(
         contentAlignment = Alignment.Center,
       ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-          Text("Visit not found", style = MaterialTheme.typography.titleMedium)
+          Text(stringResource(Res.string.detail_visit_not_found), style = MaterialTheme.typography.titleMedium)
           if (showBackButton) {
-            OutlinedButton(onClick = onBack) { Text("← Back") }
+            OutlinedButton(onClick = onBack) { Text(stringResource(Res.string.action_back)) }
           }
         }
       }
@@ -718,7 +748,7 @@ internal fun VisitDetailScreen(
             onClick = onBack,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
           ) {
-            Text("← Back")
+            Text(stringResource(Res.string.action_back))
           }
         }
         Text(
@@ -752,7 +782,7 @@ internal fun VisitDetailScreen(
           modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
           contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         ) {
-          Text("＋ Add photos")
+          Text(stringResource(Res.string.action_add_photos))
         }
       }
 
@@ -785,7 +815,7 @@ internal fun VisitDetailScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
           CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
           Spacer(Modifier.width(8.dp))
-          Text("Identifying dishes on this device…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          Text(stringResource(Res.string.identifying_dishes_on_device), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
       }
 
@@ -808,7 +838,7 @@ internal fun VisitDetailScreen(
           value = tagDraft,
           onValueChange = { tagDraft = it },
           modifier = Modifier.weight(1f),
-          label = { Text("Add a dish tag") },
+          label = { Text(stringResource(Res.string.visit_tag_input_label)) },
           singleLine = true,
         )
         Spacer(Modifier.width(8.dp))
@@ -819,7 +849,7 @@ internal fun VisitDetailScreen(
           },
           enabled = tagDraft.isNotBlank(),
         ) {
-          Text("Add")
+          Text(stringResource(Res.string.action_add))
         }
       }
 
@@ -842,7 +872,7 @@ internal fun VisitDetailPlaceholder(modifier: Modifier = Modifier) {
   ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Text("☕", style = MaterialTheme.typography.displayMedium)
-      Text("Select a cafe visit", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+      Text(stringResource(Res.string.detail_placeholder_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
       Text(
         "Pick a visit from the log to inspect its photos, dish tags, and on-device classification runs.",
         style = MaterialTheme.typography.bodyMedium,
@@ -905,7 +935,7 @@ private fun CurrentLocationBar(
         onClick = onClick,
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
       ) {
-        Text("Change", style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(Res.string.action_change), style = MaterialTheme.typography.labelMedium)
       }
       TextButton(
         onClick = onRefresh,
@@ -938,7 +968,7 @@ private fun NearbyCafeSheet(
       .padding(horizontal = 22.dp)
       .padding(bottom = 24.dp),
   ) {
-    Text("Which cafe are you at?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+    Text(stringResource(Res.string.location_which_cafe), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(5.dp))
     Text(
       if (position == null) "Nearby lookup needs a location fix." else "Nearby matches are sorted by distance.",
@@ -954,7 +984,7 @@ private fun NearbyCafeSheet(
       ) {
         CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(12.dp))
-        Text("Looking for nearby cafes…")
+        Text(stringResource(Res.string.location_looking_nearby))
       }
     } else if (candidates.isNotEmpty()) {
       LazyColumn(Modifier.heightIn(max = 260.dp)) {
@@ -990,12 +1020,12 @@ private fun NearbyCafeSheet(
       value = manualName,
       onValueChange = onManualNameChange,
       modifier = Modifier.fillMaxWidth(),
-      label = { Text("Enter a cafe name") },
+      label = { Text(stringResource(Res.string.location_enter_cafe_name)) },
       singleLine = true,
     )
     Spacer(Modifier.height(8.dp))
     Button(onClick = onChooseManual, enabled = manualName.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-      Text("Use this cafe")
+      Text(stringResource(Res.string.action_use_this_cafe))
     }
     Spacer(Modifier.height(8.dp))
     Text(
@@ -1016,11 +1046,11 @@ private fun EmptyLog(modifier: Modifier, onCapture: () -> Unit) {
       Text("☕", style = MaterialTheme.typography.displayLarge)
     }
     Spacer(Modifier.height(24.dp))
-    Text("Your next favorite spot\nstarts here", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+    Text(stringResource(Res.string.empty_log_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     Spacer(Modifier.height(8.dp))
-    Text("Take a photo of what you ordered.\nWe’ll save the moment to your log.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    Text(stringResource(Res.string.empty_log_subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     Spacer(Modifier.height(20.dp))
-    OutlinedButton(onClick = onCapture) { Text("Take your first photo") }
+    OutlinedButton(onClick = onCapture) { Text(stringResource(Res.string.action_take_first_photo)) }
   }
 }
 

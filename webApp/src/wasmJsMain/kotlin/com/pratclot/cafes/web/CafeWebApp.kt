@@ -79,12 +79,32 @@ import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.UserPosition
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_add_photo_short
+import com.pratclot.cafes.core.ui.generated.resources.action_back_to_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_back_to_visits
+import com.pratclot.cafes.core.ui.generated.resources.action_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_close
+import com.pratclot.cafes.core.ui.generated.resources.action_details
+import com.pratclot.cafes.core.ui.generated.resources.action_from_disk
+import com.pratclot.cafes.core.ui.generated.resources.action_log_short
+import com.pratclot.cafes.core.ui.generated.resources.action_retry_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_take_photo
+import com.pratclot.cafes.core.ui.generated.resources.action_visit_log_count
+import com.pratclot.cafes.core.ui.generated.resources.app_subtitle
+import com.pratclot.cafes.core.ui.generated.resources.app_title
+import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes_in_browser
+import com.pratclot.cafes.core.ui.generated.resources.photo_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.search_label
+import com.pratclot.cafes.core.ui.generated.resources.search_placeholder
+import com.pratclot.cafes.core.ui.generated.resources.web_storage_notice
 import com.pratclot.cafes.data.CafeLogStateHolder
 import com.pratclot.cafes.ui.SharedCompactLocationBar
 import com.pratclot.cafes.ui.SharedVisitDetailsContent
 import com.pratclot.cafes.ui.SharedVisitEntryCard
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
 import org.jetbrains.compose.resources.decodeToImageBitmap
+import org.jetbrains.compose.resources.stringResource
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -222,7 +242,7 @@ internal fun CafeWebApp() {
         ) {
           if (showingCameraScreen) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-              Text("Cafes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+              Text(stringResource(Res.string.app_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
               OutlinedButton(
                 onClick = {
                   if (desktopLayout) forceCameraOnDesktop = false
@@ -230,7 +250,7 @@ internal fun CafeWebApp() {
                 },
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
               ) {
-                Text("Visit log (${entries.size}) →")
+                Text(stringResource(Res.string.action_visit_log_count, entries.size))
               }
             }
             Spacer(Modifier.height(8.dp))
@@ -302,7 +322,7 @@ internal fun CafeWebApp() {
                   )
                   if (cameraError != null) {
                     OutlinedButton(onClick = { cameraRetryTrigger += 1 }) {
-                      Text("Retry camera", color = Color(0xFFF5ECE3))
+                      Text(stringResource(Res.string.action_retry_camera), color = Color(0xFFF5ECE3))
                     }
                   }
                 }
@@ -338,18 +358,18 @@ internal fun CafeWebApp() {
                   TextButton(
                     onClick = { addPhotosToVisit(recentSaved.id) },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                  ) { Text("+ Photo") }
+                  ) { Text(stringResource(Res.string.action_add_photo_short)) }
                   TextButton(
                     onClick = { selectedDetailsEntryId = recentSaved.id },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                  ) { Text("Details") }
+                  ) { Text(stringResource(Res.string.action_details)) }
                   TextButton(
                     onClick = {
                       if (desktopLayout) forceCameraOnDesktop = false
                       else showingMobileLog = true
                     },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                  ) { Text("Log →") }
+                  ) { Text(stringResource(Res.string.action_log_short)) }
                 }
               }
             }
@@ -363,13 +383,13 @@ internal fun CafeWebApp() {
                 onClick = ::pickPhotosFromDiskForNewVisit,
                 modifier = Modifier.height(50.dp),
               ) {
-                Text("From disk")
+                Text(stringResource(Res.string.action_from_disk))
               }
               Button(
                 onClick = ::snapPhotoFromCamera,
                 modifier = Modifier.weight(1f).height(50.dp),
               ) {
-                Text("● Take photo", fontWeight = FontWeight.SemiBold)
+                Text(stringResource(Res.string.action_take_photo), fontWeight = FontWeight.SemiBold)
               }
               OutlinedButton(
                 onClick = { cameraFacing = if (cameraFacing == "environment") "user" else "environment" },
@@ -394,13 +414,13 @@ internal fun CafeWebApp() {
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                   )
-                  Text("A little log of places you share", color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+                  Text(stringResource(Res.string.app_subtitle), color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                   onClick = { forceCameraOnDesktop = true },
                   contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 ) {
-                  Text("📷 Camera")
+                  Text(stringResource(Res.string.action_camera))
                 }
                 TextButton(onClick = { showArchive = !showArchive }) {
                   Text(if (showArchive) "Visit log (${entries.size})" else "Archive (${archived.size})")
@@ -437,8 +457,8 @@ internal fun CafeWebApp() {
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Search cafes and dishes") },
-                placeholder = { Text("Try “Galette” or “Egg”") },
+                label = { Text(stringResource(Res.string.search_label)) },
+                placeholder = { Text(stringResource(Res.string.search_placeholder)) },
                 singleLine = true,
               )
               Spacer(Modifier.height(10.dp))
@@ -493,7 +513,7 @@ internal fun CafeWebApp() {
                         onClick = { showingMobileLog = false },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                       ) {
-                        Text("← Camera")
+                        Text(stringResource(Res.string.action_back_to_camera))
                       }
                       Text(
                         if (showArchive) "Archived visits" else "Visit log",
@@ -532,8 +552,8 @@ internal fun CafeWebApp() {
                       value = searchQuery,
                       onValueChange = { searchQuery = it },
                       modifier = Modifier.fillMaxWidth(),
-                      label = { Text("Search cafes and dishes") },
-                      placeholder = { Text("Try “Galette” or “Egg”") },
+                      label = { Text(stringResource(Res.string.search_label)) },
+                      placeholder = { Text(stringResource(Res.string.search_placeholder)) },
                       singleLine = true,
                     )
                   }
@@ -574,7 +594,7 @@ internal fun CafeWebApp() {
             }
           }
           storageWarning?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp)) }
-          Text("Saved in this browser · no account or device sync yet", style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 6.dp))
+          Text(stringResource(Res.string.web_storage_notice), style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 6.dp))
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
@@ -666,7 +686,7 @@ private fun VisitCard(
     swipeEnabled = swipeEnabled,
     showArchiveButton = showArchiveButton,
     tagging = tagging,
-    taggingLabel = "Identifying dishes in browser…",
+    taggingLabel = stringResource(Res.string.identifying_dishes_in_browser),
     tagDraft = tagDraft,
     onOpenDetails = onDetails,
     onTagDraft = onTagDraft,
@@ -712,7 +732,7 @@ private fun VisitDetailsContent(
     currentModelVersion = BROWSER_FOOD_MODEL_VERSION,
     tagging = tagging,
     onClose = onClose,
-    closeLabel = if (fullScreen) "← Back to visits" else "Close",
+    closeLabel = stringResource(if (fullScreen) Res.string.action_back_to_visits else Res.string.action_close),
     onRetryClassification = onRetryClassification,
     modifier = modifier,
   )
@@ -723,7 +743,7 @@ private fun BrowserPhoto(dataUrl: String, modifier: Modifier = Modifier) {
   val bitmap = remember(dataUrl) { decodeImage(dataUrl) }
   if (bitmap == null) {
     Box(modifier.background(Color(0xFFE9DED2), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)), contentAlignment = Alignment.Center) {
-      Text("Photo unavailable")
+      Text(stringResource(Res.string.photo_unavailable))
     }
   } else {
     Image(bitmap, contentDescription = "Cafe visit photo", modifier = modifier, contentScale = ContentScale.Crop)

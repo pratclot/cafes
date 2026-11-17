@@ -1,0 +1,78 @@
+<resources>
+    <string name="app_title">Cafes</string>
+    <string name="app_subtitle">A little log of places you share</string>
+
+    <string name="action_add">Add</string>
+    <string name="action_add_photo_short">+ Photo</string>
+    <string name="action_add_photos">＋ Add photos</string>
+    <string name="action_add_photos_plain">+ Add photos</string>
+    <string name="action_archive">Archive</string>
+    <string name="action_archive_visit">Archive visit</string>
+    <string name="action_back">← Back</string>
+    <string name="action_back_to_camera">← Camera</string>
+    <string name="action_back_to_visits">← Back to visits</string>
+    <string name="action_camera">📷 Camera</string>
+    <string name="action_change">Change</string>
+    <string name="action_close">Close</string>
+    <string name="action_details">Details</string>
+    <string name="action_done">Done</string>
+    <string name="action_from_disk">From disk</string>
+    <string name="action_log_short">Log →</string>
+    <string name="action_restore">Restore</string>
+    <string name="action_restore_visit">Restore visit</string>
+    <string name="action_retry_camera">Retry camera</string>
+    <string name="action_take_first_photo">Take your first photo</string>
+    <string name="action_take_photo">● Take photo</string>
+    <string name="action_use">Use</string>
+    <string name="action_use_this_cafe">Use this cafe</string>
+    <string name="action_visit_log_count">Visit log (%1$d) →</string>
+
+    <string name="classification_heading">Automatic classification</string>
+    <string name="classification_current_model">Current model: %1$s</string>
+    <string name="classification_error">Processing error</string>
+    <string name="classification_no_detections">Nothing detected</string>
+    <string name="classification_none_yet">No classification runs recorded yet.</string>
+    <string name="classification_legacy_history">This visit was classified before run history was saved.</string>
+    <string name="classification_retry">Run classification again</string>
+    <string name="classification_run_history">Run history (%1$d)</string>
+    <string name="classification_run_summary">%1$s · %2$s · %3$d ms · %4$s</string>
+    <string name="classification_running">Classification running…</string>
+    <string name="classification_label_confidence">%1$s (%2$d%%)</string>
+    <string name="identifying_dishes">Identifying dishes…</string>
+    <string name="identifying_dishes_on_device">Identifying dishes on this device…</string>
+    <string name="identifying_dishes_in_browser">Identifying dishes in browser…</string>
+
+    <string name="empty_archive_title">No archived visits</string>
+    <string name="empty_archive_subtitle">Visits you archive will be kept here.</string>
+    <string name="empty_log_title">Your next favorite spot\nstarts here</string>
+    <string name="empty_log_subtitle">Take a photo of what you ordered.\nWe’ll save the moment to your log.</string>
+    <string name="empty_search_title">No matching visits</string>
+    <string name="empty_search_subtitle">Search by cafe name or a dish in your photos.</string>
+    <string name="detail_placeholder_title">Select a cafe visit</string>
+    <string name="detail_visit_not_found">Visit not found</string>
+    <string name="photo_unavailable">Photo unavailable</string>
+
+    <string name="location_custom_cafe_label">Custom cafe name</string>
+    <string name="location_enter_cafe_name">Enter a cafe name</string>
+    <string name="location_looking_nearby">Looking for nearby cafes…</string>
+    <string name="location_nearby_cafes">Nearby cafes</string>
+    <string name="location_pin_label">📍 %1$s</string>
+    <string name="location_which_cafe">Which cafe are you at?</string>
+
+    <string name="search_label">Search cafes and dishes</string>
+    <string name="search_placeholder">Try “Galette” or “Egg”</string>
+    <string name="visit_location">Location: %1$s, %2$s</string>
+    <string name="visit_tags_heading">Tags</string>
+    <string name="visit_tag_input_label">Add a dish tag</string>
+    <string name="visit_visited_at">Visited %1$s</string>
+    <string name="web_storage_notice">Saved in this browser · no account or device sync yet</string>
+
+    <plurals name="classification_detected_labels">
+        <item quantity="one">Detected %1$d label</item>
+        <item quantity="other">Detected %1$d labels</item>
+    </plurals>
+    <plurals name="photo_count">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
+</resources>

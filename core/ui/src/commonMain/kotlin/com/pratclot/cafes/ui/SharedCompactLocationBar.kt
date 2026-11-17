@@ -27,6 +27,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pratclot.cafes.core.model.CafeCandidate
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_add_photos_plain
+import com.pratclot.cafes.core.ui.generated.resources.action_change
+import com.pratclot.cafes.core.ui.generated.resources.action_done
+import com.pratclot.cafes.core.ui.generated.resources.action_use
+import com.pratclot.cafes.core.ui.generated.resources.location_custom_cafe_label
+import com.pratclot.cafes.core.ui.generated.resources.location_nearby_cafes
+import com.pratclot.cafes.core.ui.generated.resources.location_pin_label
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun SharedCompactLocationBar(
@@ -61,7 +70,7 @@ fun SharedCompactLocationBar(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
         Text(
-          "📍 $activeLabel",
+          stringResource(Res.string.location_pin_label, activeLabel),
           style = MaterialTheme.typography.bodyMedium,
           fontWeight = if (selectedCafe != null || manualCafe.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -73,7 +82,7 @@ fun SharedCompactLocationBar(
           onClick = onToggleEditing,
           contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         ) {
-          Text(if (editing) "Done" else "Change")
+          Text(stringResource(if (editing) Res.string.action_done else Res.string.action_change))
         }
         TextButton(
           onClick = onRefresh,
@@ -87,7 +96,7 @@ fun SharedCompactLocationBar(
             onClick = onAddPhotos,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
           ) {
-            Text("+ Add photos")
+            Text(stringResource(Res.string.action_add_photos_plain))
           }
         }
       }
@@ -104,7 +113,7 @@ fun SharedCompactLocationBar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
           if (cafes.isNotEmpty()) {
-            Text("Nearby cafes", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(Res.string.location_nearby_cafes), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
             cafes.take(6).forEach { cafe ->
               TextButton(
                 onClick = { onSelectCafe(cafe) },
@@ -118,12 +127,12 @@ fun SharedCompactLocationBar(
             OutlinedTextField(
               value = manualCafe,
               onValueChange = onManualCafeChange,
-              label = { Text("Custom cafe name") },
+              label = { Text(stringResource(Res.string.location_custom_cafe_label)) },
               singleLine = true,
               modifier = Modifier.weight(1f),
             )
             if (manualCafe.isNotBlank()) {
-              OutlinedButton(onClick = onApplyManualCafe) { Text("Use") }
+              OutlinedButton(onClick = onApplyManualCafe) { Text(stringResource(Res.string.action_use)) }
             }
           }
         }

@@ -53,8 +53,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.pratclot.cafes.core.model.CafeEntry
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_add
+import com.pratclot.cafes.core.ui.generated.resources.action_add_photos
+import com.pratclot.cafes.core.ui.generated.resources.action_archive
+import com.pratclot.cafes.core.ui.generated.resources.action_archive_visit
+import com.pratclot.cafes.core.ui.generated.resources.action_details
+import com.pratclot.cafes.core.ui.generated.resources.action_restore
+import com.pratclot.cafes.core.ui.generated.resources.action_restore_visit
+import com.pratclot.cafes.core.ui.generated.resources.visit_tag_input_label
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
 @Composable
@@ -98,6 +108,8 @@ fun SharedVisitEntryCard(
   var dragging by remember(entry.id) { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
+  val actionLabel = stringResource(if (archived) Res.string.action_restore_visit else Res.string.action_archive_visit)
+
   BoxWithConstraints(
     Modifier
       .fillMaxWidth()
@@ -105,7 +117,7 @@ fun SharedVisitEntryCard(
       .semantics {
         customActions = listOf(
           CustomAccessibilityAction(
-            label = if (archived) "Restore visit" else "Archive visit",
+            label = actionLabel,
             action = {
               if (archived) onRestore() else onArchive()
               true
@@ -184,7 +196,7 @@ fun SharedVisitEntryCard(
               modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
               contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             ) {
-              Text("＋ Add photos")
+              Text(stringResource(Res.string.action_add_photos))
             }
           }
           Column(Modifier.padding(16.dp)) {
@@ -199,14 +211,14 @@ fun SharedVisitEntryCard(
                 onClick = onOpenDetails,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
               ) {
-                Text("Details")
+                Text(stringResource(Res.string.action_details))
               }
               if (showArchiveButton) {
                 TextButton(
                   onClick = if (archived) onRestore else onArchive,
                   contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
-                  Text(if (archived) "Restore" else "Archive")
+                  Text(stringResource(if (archived) Res.string.action_restore else Res.string.action_archive))
                 }
               }
             }
@@ -255,11 +267,11 @@ fun SharedVisitEntryCard(
                 value = tagDraft,
                 onValueChange = onTagDraft,
                 modifier = Modifier.weight(1f),
-                label = { Text("Add a dish tag") },
+                label = { Text(stringResource(Res.string.visit_tag_input_label)) },
                 singleLine = true,
               )
               Spacer(Modifier.width(8.dp))
-              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text("Add") }
+              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text(stringResource(Res.string.action_add)) }
             }
           }
         }
