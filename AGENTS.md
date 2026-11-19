@@ -25,9 +25,9 @@ Guidance for AI coding agents working in the `cafes` repository. Keep this file 
 ## Dependency Management Conventions
 
 - **Version Catalog**: Define all library/plugin versions and coordinates in `gradle/libs.versions.toml`.
-- **Cross-Platform Shared Dependencies**: Expose common KMP dependencies as `api(...)` in `core/passthrough/build.gradle.kts` (`kotlin-multiplatform` + `android-kotlin-multiplatform-library`). Pure-Kotlin/KMP modules (`:webApp`, `:core:data`) depend on `project(":core:passthrough")`.
-- **Android Shared Dependencies**: Expose shared Android/Compose/Navigation 3/Adaptive dependencies as `api(...)` in `core/passthrough-android/build.gradle.kts` (which re-exports `:core:passthrough`). Android UI/feature/service modules (`:app`, `:feature:cafe-log`, `:core:designsystem`, `:core:location`, `:core:recognition`) depend on `project(":core:passthrough-android")`.
-- **Module-Specific Dependencies**: Keep specialized dependencies in their owning module only (e.g., `androidx-camera-*` and test dependencies in `:feature:cafe-log`, `play-services-location` in `:core:location`, `play-services-litert` in `:core:recognition`, `kotlinx-browser` in `:webApp`).
+- **Cross-Platform Shared Dependencies**: Expose common KMP dependencies as `api(...)` in `core/passthrough/build.gradle.kts` (`kotlin-multiplatform` + `android-kotlin-multiplatform-library`). Pure-Kotlin/KMP and non-UI Android modules (`:webApp`, `:core:data`, `:core:location`, `:core:recognition`) depend on `project(":core:passthrough")`.
+- **Android Shared Dependencies**: Expose shared Android/Compose/Navigation 3/Adaptive dependencies as `api(...)` in `core/passthrough-android/build.gradle.kts` (which re-exports `:core:passthrough`). Android UI/feature modules (`:app`, `:feature:cafe-log`, `:core:designsystem`) depend on `project(":core:passthrough-android")`.
+- **Module-Specific Dependencies**: Keep specialized dependencies in their owning module only (e.g., `androidx-camera-*` and test dependencies in `:feature:cafe-log`, `play-services-location` and `androidx-core-ktx` in `:core:location`, `play-services-litert` in `:core:recognition`, `kotlinx-browser` in `:webApp`).
 
 ## Build, Test, and Deployment
 

@@ -1070,9 +1070,3 @@ private fun AsyncLocalPhoto(path: String, modifier: Modifier = Modifier) {
     )
   }
 }
-
-// Compatibility for the starter project's existing preview and UI test surface.
-@Composable
-internal fun MainScreen(data: List<String>, modifier: Modifier = Modifier) {
-  Column(modifier) { data.forEach { Text("Hello $it!", modifier = Modifier.padding(16.dp)) } }
-}

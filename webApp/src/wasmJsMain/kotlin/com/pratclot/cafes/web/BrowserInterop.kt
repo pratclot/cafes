@@ -16,10 +16,6 @@ internal fun browserStorageWrite(key: String, value: String): Boolean = js(
   """(() => { try { window.localStorage.setItem(key, value); return true; } catch (_) { return false; } })()""",
 )
 
-internal fun browserFormatDate(timestamp: Double): String = js(
-  "new Date(timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })",
-)
-
 internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit): Unit = js(
   """
   Promise.resolve()
