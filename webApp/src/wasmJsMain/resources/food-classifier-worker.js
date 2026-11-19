@@ -3,26 +3,16 @@ const modelId = 'Xenova/siglip-base-patch16-224';
 let classifierPromise = null;
 
 async function loadTransformersModule() {
-  const urls = [
-    `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${transformersVersion}/dist/transformers.min.js`,
-    `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${transformersVersion}/+esm`,
-  ];
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      const mod = await import(url);
-      const resolved = mod?.SiglipVisionModel ? mod : mod?.default;
-      if (resolved?.SiglipVisionModel && resolved?.Tensor) {
-        if (resolved.env?.backends?.onnx?.wasm) {
-          resolved.env.backends.onnx.wasm.numThreads = 1;
-        }
-        return resolved;
-      }
-    } catch (err) {
-      lastError = err;
+  const pinnedUrl = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${transformersVersion}/dist/transformers.min.js`;
+  const mod = await import(pinnedUrl);
+  const resolved = mod?.SiglipVisionModel ? mod : mod?.default;
+  if (resolved?.SiglipVisionModel && resolved?.Tensor) {
+    if (resolved.env?.backends?.onnx?.wasm) {
+      resolved.env.backends.onnx.wasm.numThreads = 1;
     }
+    return resolved;
   }
-  throw lastError || new Error('Transformers.js runtime could not be loaded in worker.');
+  throw new Error('Transformers.js runtime could not be loaded in worker.');
 }
 
 function decodeBase64Int16(base64) {

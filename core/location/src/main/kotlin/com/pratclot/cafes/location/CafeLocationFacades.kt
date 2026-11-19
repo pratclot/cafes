@@ -173,7 +173,7 @@ private class OpenStreetMapCafeFacade(
       if (connection.responseCode !in 200..299) {
         throw IOException("Overpass returned HTTP ${connection.responseCode}")
       }
-      val response = connection.inputStream.bufferedReader().use { it.readText() }
+      val response = readBoundedUtf8(connection.inputStream, MAX_OVERPASS_RESPONSE_BYTES)
       val elements = JSONObject(response).optJSONArray("elements") ?: return emptyList()
       (0 until elements.length()).mapNotNull { index ->
         val element = elements.optJSONObject(index) ?: return@mapNotNull null
@@ -200,6 +200,28 @@ private class OpenStreetMapCafeFacade(
     } finally {
       connection.disconnect()
     }
+  }
+
+  private fun readBoundedUtf8(stream: java.io.InputStream, maxBytes: Int): String {
+    val buffer = ByteArray(8192)
+    val out = java.io.ByteArrayOutputStream()
+    var total = 0
+    stream.use { input ->
+      while (true) {
+        val read = input.read(buffer)
+        if (read == -1) break
+        total += read
+        if (total > maxBytes) {
+          throw IOException("Overpass response exceeded $maxBytes bytes")
+        }
+        out.write(buffer, 0, read)
+      }
+    }
+    return out.toString(StandardCharsets.UTF_8.name())
+  }
+
+  companion object {
+    private const val MAX_OVERPASS_RESPONSE_BYTES = 2 * 1024 * 1024
   }
 }
 

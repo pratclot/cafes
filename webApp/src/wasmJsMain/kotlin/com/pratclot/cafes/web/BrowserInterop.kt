@@ -267,8 +267,8 @@ internal fun browserRequestLocation(onResult: (Double, Double, Double, String) -
 
 internal fun browserFindNearbyCafes(latitude: Double, longitude: Double, onResult: (String) -> Unit): Unit = js(
   """
-  {
-        const query = '[out:json][timeout:12];(nwr(around:350,' + latitude + ',' + longitude + ')["amenity"="cafe"];nwr(around:350,' + latitude + ',' + longitude + ')["shop"="coffee"];);out center tags;';
+  (async () => {
+    const query = '[out:json][timeout:12];(nwr(around:350,' + latitude + ',' + longitude + ')["amenity"="cafe"];nwr(around:350,' + latitude + ',' + longitude + ')["shop"="coffee"];);out center tags;';
     const distance = (lat, lon) => {
       const rad = (value) => value * Math.PI / 180;
       const dLat = rad(lat - latitude);
@@ -276,31 +276,48 @@ internal fun browserFindNearbyCafes(latitude: Double, longitude: Double, onResul
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(latitude)) * Math.cos(rad(lat)) * Math.sin(dLon / 2) ** 2;
       return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, a)));
     };
-    fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-      body: 'data=' + encodeURIComponent(query)
-    }).then((response) => {
-      if (!response.ok) throw new Error('Overpass HTTP ' + response.status);
-      return response.json();
-    }).then((data) => {
-      const values = (data.elements || []).map((item) => {
-        const tags = item.tags || {};
-        const point = item.center || item;
-        if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return null;
-        const street = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
-        const address = [street, tags['addr:city']].filter(Boolean).join(', ');
-        const row = [
-          item.type + ':' + item.id,
-          tags.name || tags.brand || 'Cafe',
-          address,
-          String(point.lat),
-          String(point.lon)
-        ].map((field) => encodeURIComponent(field)).join('|');
-        return { row, distance: distance(point.lat, point.lon) };
-      }).filter(Boolean).sort((a, b) => a.distance - b.distance);
-      onResult(values.map((value) => value.row).join('\n'));
-    }).catch(() => onResult('!ERROR'));
-  }
+    const inEurope = latitude >= 34.0 && latitude <= 72.0 && longitude >= -25.0 && longitude <= 45.0;
+    const endpoints = inEurope
+      ? ['https://ovp.dresel.systems/api/interpreter', 'https://overpass-api.de/api/interpreter']
+      : ['https://overpass-api.de/api/interpreter'];
+    let lastError = null;
+    for (const endpoint of endpoints) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+          body: 'data=' + encodeURIComponent(query),
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('Overpass HTTP ' + response.status);
+        const data = await response.json();
+        const values = (data.elements || []).map((item) => {
+          const tags = item.tags || {};
+          const point = item.center || item;
+          if (!Number.isFinite(point.lat) || !Number.isFinite(point.lon)) return null;
+          const street = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ');
+          const address = [street, tags['addr:city']].filter(Boolean).join(', ');
+          const row = [
+            item.type + ':' + item.id,
+            tags.name || tags.brand || 'Cafe',
+            address,
+            String(point.lat),
+            String(point.lon)
+          ].map((field) => encodeURIComponent(field)).join('|');
+          return { row, distance: distance(point.lat, point.lon) };
+        }).filter(Boolean).sort((a, b) => a.distance - b.distance);
+        onResult(values.map((value) => value.row).join('\n'));
+        return;
+      } catch (err) {
+        lastError = err;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const msg = (lastError && lastError.message) ? lastError.message : 'Overpass lookup failed';
+    onResult('!ERROR|' + encodeURIComponent(msg));
+  })()
   """,
 )

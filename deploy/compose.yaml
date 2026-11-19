@@ -1,0 +1,23 @@
+services:
+  cafes-web:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./current:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.cafes.rule=Host(`${CAFES_HOST:?Set CAFES_HOST in .env}`)
+      - traefik.http.routers.cafes.entrypoints=websecure
+      - traefik.http.routers.cafes.tls=true
+      - traefik.http.routers.cafes.tls.certresolver=le
+      - traefik.http.services.cafes.loadbalancer.server.port=80
+
+networks:
+  proxy:
+    external: true
