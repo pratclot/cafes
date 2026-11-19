@@ -82,10 +82,28 @@ internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit)
   """
   Promise.resolve()
     .then(async () => {
+      const loadBlob = (window.__cafeLoadPhotoBlob = window.__cafeLoadPhotoBlob || ((k) => {
+        if (!window.indexedDB) return Promise.resolve('');
+        const openDb = (window.__cafeOpenPhotoDb = window.__cafeOpenPhotoDb || (() => new Promise((resolve, reject) => {
+          const req = window.indexedDB.open('cafes-photos-db', 1);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        })));
+        return openDb().then((db) => new Promise((resolve) => {
+          const tx = db.transaction('photos', 'readonly');
+          const req = tx.objectStore('photos').get(k);
+          req.onsuccess = () => resolve(typeof req.result === 'string' ? req.result : '');
+          req.onerror = () => resolve('');
+        })).catch(() => '');
+      }));
       const rawList = photos.split('\n').filter(Boolean).map(decodeURIComponent);
       const resolved = await Promise.all(rawList.map(async (item) => {
-        if (item.startsWith('idb://') && window.__cafeLoadPhotoBlob) {
-          const loaded = await window.__cafeLoadPhotoBlob(item);
+        if (item.startsWith('idb://')) {
+          const loaded = await loadBlob(item);
           return loaded || item;
         }
         return item;
