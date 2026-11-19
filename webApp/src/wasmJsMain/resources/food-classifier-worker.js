@@ -75,15 +75,24 @@ async function classifyPhotoViews(photoViews, baseUrl) {
 
     for (let v = 0; v < nViews; v++) {
       pixelValues.set(allPixels.subarray(v * viewStride, (v + 1) * viewStride));
-      const visOut = await visionModel({
-        pixel_values: new Tensor('float32', pixelValues, [1, 3, 224, 224]),
-      });
-      const pooler = visOut.pooler_output.data;
-      let norm = 0;
-      for (let i = 0; i < dim; i++) norm += pooler[i] * pooler[i];
-      norm = Math.sqrt(norm) || 1;
-      const off = v * dim;
-      for (let i = 0; i < dim; i++) normViews[off + i] = pooler[i] / norm;
+      const pixelTensor = new Tensor('float32', pixelValues, [1, 3, 224, 224]);
+      let visOut = null;
+      try {
+        visOut = await visionModel({ pixel_values: pixelTensor });
+        const pooler = visOut.pooler_output.data;
+        let norm = 0;
+        for (let i = 0; i < dim; i++) norm += pooler[i] * pooler[i];
+        norm = Math.sqrt(norm) || 1;
+        const off = v * dim;
+        for (let i = 0; i < dim; i++) normViews[off + i] = pooler[i] / norm;
+      } finally {
+        pixelTensor?.dispose?.();
+        if (visOut) {
+          for (const tensor of Object.values(visOut)) {
+            tensor?.dispose?.();
+          }
+        }
+      }
     }
 
     const dotPrompt = (viewIdx, promptIdx) => {

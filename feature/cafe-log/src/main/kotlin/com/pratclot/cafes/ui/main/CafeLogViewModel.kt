@@ -59,7 +59,11 @@ class CafeLogViewModel(
       val id = "cafe-${UUID.randomUUID()}"
       val file = File(filesDir, "$id.jpg")
       withContext(ioDispatcher) {
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+        try {
+          file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
+        } finally {
+          bitmap.recycle()
+        }
       }
       stateHolder.saveCapturedPhoto(
         id = id,

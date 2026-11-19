@@ -81,6 +81,7 @@ import com.pratclot.cafes.ui.SharedCompactLocationBar
 import com.pratclot.cafes.ui.SharedVisitDetailsContent
 import com.pratclot.cafes.ui.SharedVisitEntryCard
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.stringResource
 import kotlin.io.encoding.Base64
@@ -717,20 +718,36 @@ private fun VisitDetailsContent(
   )
 }
 
+private val browserPhotoCache = LinkedHashMap<String, ImageBitmap>()
+private const val MAX_BROWSER_PHOTO_CACHE = 32
+
 @Composable
 private fun BrowserPhoto(dataUrl: String, modifier: Modifier = Modifier) {
-  val resolvedUrl by produceState<String?>(initialValue = if (dataUrl.startsWith("idb://")) null else dataUrl, dataUrl) {
-    if (dataUrl.startsWith("idb://")) {
-      value = loadPhotoBlobSuspend(dataUrl)
+  val bitmap by produceState<ImageBitmap?>(initialValue = browserPhotoCache[dataUrl], dataUrl) {
+    browserPhotoCache[dataUrl]?.let { cached ->
+      value = cached
+      return@produceState
     }
+    val resolvedUrl = if (dataUrl.startsWith("idb://")) loadPhotoBlobSuspend(dataUrl) else dataUrl
+    if (resolvedUrl.isEmpty()) {
+      value = null
+      return@produceState
+    }
+    val decoded = withContext(Dispatchers.Default) { decodeImage(resolvedUrl) }
+    if (decoded != null) {
+      if (browserPhotoCache.size >= MAX_BROWSER_PHOTO_CACHE) {
+        browserPhotoCache.keys.firstOrNull()?.let { oldest -> browserPhotoCache.remove(oldest) }
+      }
+      browserPhotoCache[dataUrl] = decoded
+    }
+    value = decoded
   }
-  val bitmap = remember(resolvedUrl) { resolvedUrl?.takeIf(String::isNotEmpty)?.let(::decodeImage) }
   if (bitmap == null) {
     Box(modifier.background(Color(0xFFE9DED2), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)), contentAlignment = Alignment.Center) {
       Text(stringResource(Res.string.photo_unavailable))
     }
   } else {
-    Image(bitmap, contentDescription = "Cafe visit photo", modifier = modifier, contentScale = ContentScale.Crop)
+    Image(bitmap!!, contentDescription = "Cafe visit photo", modifier = modifier, contentScale = ContentScale.Crop)
   }
 }
 

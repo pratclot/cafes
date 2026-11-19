@@ -3,7 +3,7 @@ package com.pratclot.cafes.ui.main
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -174,6 +174,12 @@ internal fun CameraCaptureScreen(
       .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
       .build()
   }
+  val captureExecutor = remember {
+    java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "cafe-camera-capture") }
+  }
+  androidx.compose.runtime.DisposableEffect(captureExecutor) {
+    onDispose { captureExecutor.shutdown() }
+  }
 
   val fallbackCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
     if (bitmap != null) {
@@ -235,7 +241,7 @@ internal fun CameraCaptureScreen(
     if (cameraPermissionGranted) {
       capturePhoto(
         imageCapture = imageCapture,
-        executor = ContextCompat.getMainExecutor(context),
+        executor = captureExecutor,
         lensFacing = lensFacing,
         onPhoto = { bitmap -> viewModel.saveCapturedBitmap(bitmap, context.filesDir) },
         onError = { fallbackCamera.launch(null) },
@@ -1053,11 +1059,23 @@ private fun EmptyLog(modifier: Modifier, onCapture: () -> Unit) {
   }
 }
 
+private val localPhotoCache = object : LruCache<String, ImageBitmap>(16 * 1024 * 1024) {
+  override fun sizeOf(key: String, value: ImageBitmap): Int =
+    (value.width * value.height * 4).coerceAtLeast(1)
+}
+
 @Composable
 private fun AsyncLocalPhoto(path: String, modifier: Modifier = Modifier) {
-  val bitmap by produceState<ImageBitmap?>(initialValue = null, path) {
+  val bitmap by produceState<ImageBitmap?>(initialValue = localPhotoCache.get(path), path) {
+    val cached = localPhotoCache.get(path)
+    if (cached != null) {
+      value = cached
+      return@produceState
+    }
     value = withContext(Dispatchers.IO) {
-      BitmapFactory.decodeFile(path)?.asImageBitmap()
+      com.pratclot.cafes.core.model.decodeSampledBitmap(path, maxDimensionPx = 1024)
+        ?.asImageBitmap()
+        ?.also { localPhotoCache.put(path, it) }
     }
   }
   if (bitmap != null) {

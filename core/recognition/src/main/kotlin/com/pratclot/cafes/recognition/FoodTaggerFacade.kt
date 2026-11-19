@@ -2,7 +2,6 @@ package com.pratclot.cafes.recognition
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
@@ -11,6 +10,7 @@ import com.google.android.gms.litert.LiteRt
 import com.google.android.gms.litert.client.LiteRtInitializationOptions
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.FoodTaggerFacade
+import com.pratclot.cafes.core.model.decodeSampledBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
@@ -44,7 +44,7 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade, AutoCloseabl
         if (isClosed) return@withContext emptyList()
         val model = classifier ?: FoodClassifier(appContext, getEnvironment(), labels).also { classifier = it }
         val scores = photoPaths.flatMap { path ->
-          val bitmap = BitmapFactory.decodeFile(path) ?: return@flatMap emptyList()
+          val bitmap = decodeSampledBitmap(path, maxDimensionPx = 512) ?: return@flatMap emptyList()
           try { model.infer(bitmap) } finally { bitmap.recycle() }
         }
         scores.groupBy { it.name.lowercase() }.map { (_, candidates) -> candidates.maxBy { it.confidence } }
