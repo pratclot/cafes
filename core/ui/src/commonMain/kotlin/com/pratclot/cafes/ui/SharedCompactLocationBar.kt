@@ -23,6 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,6 +37,7 @@ import com.pratclot.cafes.core.ui.generated.resources.action_use
 import com.pratclot.cafes.core.ui.generated.resources.location_custom_cafe_label
 import com.pratclot.cafes.core.ui.generated.resources.location_nearby_cafes
 import com.pratclot.cafes.core.ui.generated.resources.location_pin_label
+import com.pratclot.cafes.core.ui.generated.resources.location_refresh_cd
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -84,10 +87,12 @@ fun SharedCompactLocationBar(
         ) {
           Text(stringResource(if (editing) Res.string.action_done else Res.string.action_change))
         }
+        val refreshDescription = stringResource(Res.string.location_refresh_cd)
         TextButton(
           onClick = onRefresh,
           enabled = !loadingLocation,
           contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+          modifier = Modifier.semantics { contentDescription = refreshDescription },
         ) {
           Text(if (loadingLocation) "…" else "↻")
         }

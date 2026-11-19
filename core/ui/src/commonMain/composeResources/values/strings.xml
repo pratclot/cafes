@@ -51,13 +51,18 @@
     <string name="detail_placeholder_title">Select a cafe visit</string>
     <string name="detail_visit_not_found">Visit not found</string>
     <string name="photo_unavailable">Photo unavailable</string>
+    <string name="photo_visit_cd">Cafe visit photo</string>
 
     <string name="location_custom_cafe_label">Custom cafe name</string>
     <string name="location_enter_cafe_name">Enter a cafe name</string>
     <string name="location_looking_nearby">Looking for nearby cafes…</string>
     <string name="location_nearby_cafes">Nearby cafes</string>
+    <string name="location_no_fresh">No fresh location yet. Check that device location is on.</string>
     <string name="location_pin_label">📍 %1$s</string>
+    <string name="location_refresh_cd">Refresh location</string>
+    <string name="location_refresh_failed">Couldn’t refresh location. Try again in a moment.</string>
     <string name="location_which_cafe">Which cafe are you at?</string>
+    <string name="cafe_search_unavailable">Cafe search is unavailable right now. You can still enter the cafe name.</string>
 
     <string name="search_label">Search cafes and dishes</string>
     <string name="search_placeholder">Try “Galette” or “Egg”</string>

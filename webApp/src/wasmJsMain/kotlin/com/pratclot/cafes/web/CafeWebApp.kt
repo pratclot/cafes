@@ -1,6 +1,5 @@
 package com.pratclot.cafes.web
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,15 +36,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
@@ -55,14 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
-import com.pratclot.cafes.core.model.CafeCandidate
-import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.ui.generated.resources.Res
 import com.pratclot.cafes.core.ui.generated.resources.action_add_photo_short
 import com.pratclot.cafes.core.ui.generated.resources.action_back_to_camera
-import com.pratclot.cafes.core.ui.generated.resources.action_back_to_visits
 import com.pratclot.cafes.core.ui.generated.resources.action_camera
-import com.pratclot.cafes.core.ui.generated.resources.action_close
 import com.pratclot.cafes.core.ui.generated.resources.action_details
 import com.pratclot.cafes.core.ui.generated.resources.action_from_disk
 import com.pratclot.cafes.core.ui.generated.resources.action_log_short
@@ -71,21 +63,16 @@ import com.pratclot.cafes.core.ui.generated.resources.action_take_photo
 import com.pratclot.cafes.core.ui.generated.resources.action_visit_log_count
 import com.pratclot.cafes.core.ui.generated.resources.app_subtitle
 import com.pratclot.cafes.core.ui.generated.resources.app_title
-import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes_in_browser
-import com.pratclot.cafes.core.ui.generated.resources.photo_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.cafe_search_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.location_no_fresh
+import com.pratclot.cafes.core.ui.generated.resources.location_refresh_failed
 import com.pratclot.cafes.core.ui.generated.resources.search_label
 import com.pratclot.cafes.core.ui.generated.resources.search_placeholder
 import com.pratclot.cafes.core.ui.generated.resources.web_storage_notice
 import com.pratclot.cafes.data.CafeLogStateHolder
-import com.pratclot.cafes.ui.SharedCompactLocationBar
-import com.pratclot.cafes.ui.SharedVisitDetailsContent
-import com.pratclot.cafes.ui.SharedVisitEntryCard
+import com.pratclot.cafes.data.RefreshStatusMessage
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
-import kotlinx.coroutines.withContext
-import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.stringResource
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 @Composable
 internal fun CafeWebApp() {
@@ -134,12 +121,19 @@ internal fun CafeWebApp() {
   var viewfinderWidth by remember { mutableStateOf(0.0) }
   var viewfinderHeight by remember { mutableStateOf(0.0) }
 
+  val refreshMessageText = when (uiState.refreshMessage) {
+    RefreshStatusMessage.NO_FRESH_LOCATION -> stringResource(Res.string.location_no_fresh)
+    RefreshStatusMessage.REFRESH_FAILED -> stringResource(Res.string.location_refresh_failed)
+    null -> null
+  }
+  val cafeSearchErrorText = uiState.cafeSearchError?.let { stringResource(Res.string.cafe_search_unavailable) }
+
   val locationMessage = when {
     uiState.refreshingLocation -> "Checking your location…"
-    uiState.refreshMessage != null -> uiState.refreshMessage!!
+    refreshMessageText != null -> refreshMessageText
     position == null -> "Location has not been checked yet."
     uiState.searchingCafes -> "${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
-    uiState.cafeSearchError != null -> "Location found, but nearby cafes could not be loaded."
+    cafeSearchErrorText != null -> cafeSearchErrorText
     selectedCafe != null -> "${selectedCafe.name} · ${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
     cafes.isNotEmpty() -> "${cafes.size} nearby places need a quick choice."
     else -> "No nearby cafes found. You can enter the name manually."
@@ -179,8 +173,8 @@ internal fun CafeWebApp() {
 
   LaunchedEffect(stateHolder) { stateHolder.refreshLocation() }
 
-  ComPratclotCafesTheme(darkTheme = false) {
-    Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
+  ComPratclotCafesTheme {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
       BoxWithConstraints(Modifier.fillMaxSize()) {
         val desktopLayout = maxWidth >= 900.dp
         val detailsEntry = (entries + archived).firstOrNull { it.id == selectedDetailsEntryId }
@@ -274,13 +268,6 @@ internal fun CafeWebApp() {
                   viewfinderTop = t
                   viewfinderWidth = w
                   viewfinderHeight = h
-                  browserUpdateCameraBounds(
-                    left = l,
-                    top = t,
-                    width = w,
-                    height = h,
-                    visible = showVideoElement,
-                  )
                 },
               contentAlignment = Alignment.Center,
             ) {
@@ -320,7 +307,7 @@ internal fun CafeWebApp() {
               Surface(
                 Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFF2E8DE),
+                color = MaterialTheme.colorScheme.surfaceVariant,
               ) {
                 Row(
                   Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -330,7 +317,7 @@ internal fun CafeWebApp() {
                     "✓ Saved to ${recentSaved.venue}",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF3E342C),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -394,7 +381,7 @@ internal fun CafeWebApp() {
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                   )
-                  Text(stringResource(Res.string.app_subtitle), color = Color(0xFF6E6258), style = MaterialTheme.typography.bodySmall)
+                  Text(stringResource(Res.string.app_subtitle), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
                 OutlinedButton(
                   onClick = { forceCameraOnDesktop = true },
@@ -573,8 +560,8 @@ internal fun CafeWebApp() {
               }
             }
           }
-          storageWarning?.let { Text(it, color = Color(0xFFB3261E), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp)) }
-          Text(stringResource(Res.string.web_storage_notice), style = MaterialTheme.typography.labelSmall, color = Color(0xFF81766D), modifier = Modifier.padding(top = 6.dp))
+          storageWarning?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 6.dp)) }
+          Text(stringResource(Res.string.web_storage_notice), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
@@ -585,7 +572,7 @@ internal fun CafeWebApp() {
               Surface(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp).heightIn(max = 820.dp),
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xFFFFF8F0),
+                color = MaterialTheme.colorScheme.surface,
               ) {
                 VisitDetailsContent(
                   entry = detailsEntry,
@@ -609,160 +596,4 @@ internal fun CafeWebApp() {
       }
     }
   }
-}
-
-@Composable
-private fun CompactLocationBar(
-  selectedCafe: CafeCandidate?,
-  manualCafe: String,
-  locationMessage: String,
-  loadingLocation: Boolean,
-  cafes: List<CafeCandidate>,
-  editing: Boolean,
-  showAddPhotosAction: Boolean,
-  onToggleEditing: () -> Unit,
-  onRefresh: () -> Unit,
-  onSelectCafe: (CafeCandidate) -> Unit,
-  onManualCafeChange: (String) -> Unit,
-  onApplyManualCafe: () -> Unit,
-  onAddPhotos: () -> Unit,
-) {
-  SharedCompactLocationBar(
-    selectedCafe = selectedCafe,
-    manualCafe = manualCafe,
-    locationMessage = locationMessage,
-    loadingLocation = loadingLocation,
-    cafes = cafes,
-    editing = editing,
-    showAddPhotosAction = showAddPhotosAction,
-    onToggleEditing = onToggleEditing,
-    onRefresh = onRefresh,
-    onSelectCafe = onSelectCafe,
-    onManualCafeChange = onManualCafeChange,
-    onApplyManualCafe = onApplyManualCafe,
-    onAddPhotos = onAddPhotos,
-  )
-}
-
-@Composable
-private fun VisitCard(
-  entry: CafeEntry,
-  archived: Boolean,
-  showArchiveButton: Boolean,
-  swipeEnabled: Boolean,
-  tagging: Boolean,
-  tagDraft: String,
-  onDetails: () -> Unit,
-  onTagClick: (String) -> Unit,
-  onTagDraft: (String) -> Unit,
-  onAddTag: () -> Unit,
-  onPhotos: () -> Unit,
-  onArchive: () -> Unit,
-  onRestore: () -> Unit,
-) {
-  SharedVisitEntryCard(
-    entry = entry,
-    archived = archived,
-    swipeEnabled = swipeEnabled,
-    showArchiveButton = showArchiveButton,
-    tagging = tagging,
-    taggingLabel = stringResource(Res.string.identifying_dishes_in_browser),
-    tagDraft = tagDraft,
-    onOpenDetails = onDetails,
-    onTagDraft = onTagDraft,
-    onTagClick = onTagClick,
-    onAddTag = onAddTag,
-    onAddPhotos = onPhotos,
-    onArchive = onArchive,
-    onRestore = onRestore,
-    photoContent = { photo, modifier -> BrowserPhoto(photo, modifier) },
-  )
-}
-
-@Composable
-private fun VisitDetailsScreen(
-  entry: CafeEntry,
-  tagging: Boolean,
-  onClose: () -> Unit,
-  onRetryClassification: () -> Unit,
-) {
-  Surface(Modifier.fillMaxSize(), color = Color(0xFFFFF8F0)) {
-    VisitDetailsContent(
-      entry = entry,
-      tagging = tagging,
-      onClose = onClose,
-      onRetryClassification = onRetryClassification,
-      modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-      fullScreen = true,
-    )
-  }
-}
-
-@Composable
-private fun VisitDetailsContent(
-  entry: CafeEntry,
-  tagging: Boolean,
-  onClose: () -> Unit,
-  onRetryClassification: () -> Unit,
-  modifier: Modifier,
-  fullScreen: Boolean,
-) {
-  SharedVisitDetailsContent(
-    entry = entry,
-    currentModelVersion = BROWSER_FOOD_MODEL_VERSION,
-    tagging = tagging,
-    onClose = onClose,
-    closeLabel = stringResource(if (fullScreen) Res.string.action_back_to_visits else Res.string.action_close),
-    onRetryClassification = onRetryClassification,
-    modifier = modifier,
-  )
-}
-
-private val browserPhotoCache = LinkedHashMap<String, ImageBitmap>()
-private const val MAX_BROWSER_PHOTO_CACHE = 32
-
-@Composable
-private fun BrowserPhoto(dataUrl: String, modifier: Modifier = Modifier) {
-  val bitmap by produceState<ImageBitmap?>(initialValue = browserPhotoCache[dataUrl], dataUrl) {
-    browserPhotoCache[dataUrl]?.let { cached ->
-      value = cached
-      return@produceState
-    }
-    val resolvedUrl = if (dataUrl.startsWith("idb://")) loadPhotoBlobSuspend(dataUrl) else dataUrl
-    if (resolvedUrl.isEmpty()) {
-      value = null
-      return@produceState
-    }
-    val decoded = withContext(Dispatchers.Default) { decodeImage(resolvedUrl) }
-    if (decoded != null) {
-      if (browserPhotoCache.size >= MAX_BROWSER_PHOTO_CACHE) {
-        browserPhotoCache.keys.firstOrNull()?.let { oldest -> browserPhotoCache.remove(oldest) }
-      }
-      browserPhotoCache[dataUrl] = decoded
-    }
-    value = decoded
-  }
-  if (bitmap == null) {
-    Box(modifier.background(Color(0xFFE9DED2), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)), contentAlignment = Alignment.Center) {
-      Text(stringResource(Res.string.photo_unavailable))
-    }
-  } else {
-    Image(bitmap!!, contentDescription = "Cafe visit photo", modifier = modifier, contentScale = ContentScale.Crop)
-  }
-}
-
-@OptIn(ExperimentalEncodingApi::class)
-private fun decodeImage(dataUrl: String): ImageBitmap? = runCatching {
-  val bytes = Base64.Default.decode(dataUrl.substringAfter(',', missingDelimiterValue = ""))
-  bytes.decodeToImageBitmap()
-}.getOrNull()
-
-private fun decodePhotoSelection(value: String): List<String> = value.lineSequence()
-  .filter(String::isNotBlank)
-  .map(::decodeBrowserValue)
-  .toList()
-
-private fun Double.format(digits: Int): String = toString().let { value ->
-  val dot = value.indexOf('.')
-  if (dot < 0) value else value.take(dot + digits + 1)
 }

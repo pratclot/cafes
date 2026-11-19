@@ -26,6 +26,15 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
+enum class RefreshStatusMessage {
+  NO_FRESH_LOCATION,
+  REFRESH_FAILED,
+}
+
+enum class CafeSearchError {
+  UNAVAILABLE,
+}
+
 data class CafeLogUiState(
   val entries: List<CafeEntry> = emptyList(),
   val archivedEntries: List<CafeEntry> = emptyList(),
@@ -34,10 +43,10 @@ data class CafeLogUiState(
   val selectedCafe: CafeCandidate? = null,
   val nearbyCafes: List<CafeCandidate> = emptyList(),
   val searchingCafes: Boolean = false,
-  val cafeSearchError: String? = null,
+  val cafeSearchError: CafeSearchError? = null,
   val locationUnavailable: Boolean = false,
   val refreshingLocation: Boolean = false,
-  val refreshMessage: String? = null,
+  val refreshMessage: RefreshStatusMessage? = null,
   val taggingIds: Set<String> = emptySet(),
   val lastCapturedEntryId: String? = null,
   val showLocationHint: Boolean = false,
@@ -129,7 +138,7 @@ class CafeLogStateHolder(
         val latest = withTimeout(20_000L) { facades.location.refresh() }
         if (latest == null) {
           _uiState.update {
-            it.copy(refreshMessage = "No fresh location yet. Check that device location is on.")
+            it.copy(refreshMessage = RefreshStatusMessage.NO_FRESH_LOCATION)
           }
         } else {
           onNewPosition(latest)
@@ -139,7 +148,7 @@ class CafeLogStateHolder(
       } catch (error: Exception) {
         CafeLog.w("CafeLogStateHolder", "Manual location refresh failed", error)
         _uiState.update {
-          it.copy(refreshMessage = "Couldn’t refresh location. Try again in a moment.")
+          it.copy(refreshMessage = RefreshStatusMessage.REFRESH_FAILED)
         }
       } finally {
         _uiState.update { it.copy(refreshingLocation = false) }
@@ -204,7 +213,7 @@ class CafeLogStateHolder(
         if (cafeSearchAnchor == position) {
           _uiState.update {
             it.copy(
-              cafeSearchError = "Cafe search is unavailable right now. You can still enter the cafe name.",
+              cafeSearchError = CafeSearchError.UNAVAILABLE,
               nearbyCafes = emptyList(),
             )
           }

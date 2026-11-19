@@ -4,5 +4,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val timestampFormat = ThreadLocal.withInitial {
+  SimpleDateFormat("EEE, d MMM · HH:mm:ss", Locale.getDefault())
+}
+
 actual fun formatTimestamp(epochMillis: Long): String =
-  SimpleDateFormat("EEE, d MMM · HH:mm:ss", Locale.getDefault()).format(Date(epochMillis))
+  requireNotNull(timestampFormat.get()).format(Date(epochMillis))
