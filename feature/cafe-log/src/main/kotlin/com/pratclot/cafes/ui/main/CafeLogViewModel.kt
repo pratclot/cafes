@@ -69,14 +69,14 @@ class CafeLogViewModel(
   fun savePickedPhotos(entryId: String?, savedPaths: List<String>) =
     stateHolder.savePickedPhotos(entryId, savedPaths)
 
-  fun addManualTag(entry: CafeEntry, rawTag: String) =
-    stateHolder.addManualTag(entry, rawTag)
+  fun addManualTag(entryId: String, rawTag: String) =
+    stateHolder.addManualTag(entryId, rawTag)
 
-  fun archiveEntry(entry: CafeEntry) = stateHolder.archiveEntry(entry)
+  fun archiveEntry(entryId: String) = stateHolder.archiveEntry(entryId)
 
-  fun restoreEntry(entry: CafeEntry) = stateHolder.restoreEntry(entry)
+  fun restoreEntry(entryId: String) = stateHolder.restoreEntry(entryId)
 
-  fun retryClassification(entry: CafeEntry) = stateHolder.retryClassification(entry)
+  fun retryClassification(entryId: String) = stateHolder.retryClassification(entryId)
 
   override fun onCleared() {
     super.onCleared()

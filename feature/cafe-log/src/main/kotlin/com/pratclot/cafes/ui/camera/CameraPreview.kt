@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 @Composable
@@ -111,6 +112,8 @@ fun CameraXPreview(
         imageCapture,
       )
       cameraControl = camera.cameraControl
+    } catch (cancelled: CancellationException) {
+      throw cancelled
     } catch (error: Exception) {
       cameraError = error.localizedMessage ?: "Camera unavailable"
     }
@@ -196,8 +199,10 @@ fun capturePhoto(
 private suspend fun awaitCameraProvider(context: android.content.Context): ProcessCameraProvider =
   suspendCancellableCoroutine { continuation ->
     val future = ProcessCameraProvider.getInstance(context)
+    continuation.invokeOnCancellation { future.cancel(false) }
     future.addListener(
       {
+        if (!continuation.isActive) return@addListener
         try {
           continuation.resume(future.get())
         } catch (error: Exception) {

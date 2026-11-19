@@ -8,8 +8,10 @@ import kotlin.coroutines.resume
 /** Browser-local inference boundary. The model and photos are processed by the device browser. */
 internal class MediaPipeFoodTaggerFacade : FoodTaggerFacade {
   override suspend fun classify(photoPaths: List<String>): List<FoodLabel> = suspendCancellableCoroutine { continuation ->
+    var cancelled = false
+    continuation.invokeOnCancellation { cancelled = true }
     browserClassifyPhotos(photoPaths.joinToString("\n") { encodeBrowserValue(it) }) { result ->
-      if (!continuation.isActive) return@browserClassifyPhotos
+      if (cancelled || !continuation.isActive) return@browserClassifyPhotos
       if (result.startsWith("!ERROR")) {
         val detail = result.substringAfter('|', "").takeIf(String::isNotEmpty)?.let(::decodeBrowserValue)
         val message = if (detail.isNullOrBlank()) {

@@ -92,8 +92,8 @@ class CafeLogViewModelTest {
     val viewModel = createViewModel(repository = repo)
     advanceUntilIdle()
 
-    viewModel.addManualTag(initial, "matcha")
-    viewModel.addManualTag(viewModel.uiState.value.entries.single(), "Galette")
+    viewModel.addManualTag(initial.id, "matcha")
+    viewModel.addManualTag(initial.id, "Galette")
     advanceUntilIdle()
 
     assertThat(viewModel.uiState.value.entries.single().manualTags)
@@ -117,12 +117,12 @@ class CafeLogViewModelTest {
     val viewModel = createViewModel(repository = repo)
     advanceUntilIdle()
 
-    viewModel.archiveEntry(initial)
+    viewModel.archiveEntry(initial.id)
     advanceUntilIdle()
     assertThat(viewModel.uiState.value.entries).isEmpty()
     assertThat(viewModel.uiState.value.archivedEntries).containsExactly(initial)
 
-    viewModel.restoreEntry(initial)
+    viewModel.restoreEntry(initial.id)
     advanceUntilIdle()
     assertThat(viewModel.uiState.value.entries).containsExactly(initial)
     assertThat(viewModel.uiState.value.archivedEntries).isEmpty()

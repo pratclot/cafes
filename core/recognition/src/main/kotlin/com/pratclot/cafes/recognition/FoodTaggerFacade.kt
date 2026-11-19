@@ -35,23 +35,38 @@ class AndroidFoodTaggerFacade(context: Context) : FoodTaggerFacade, AutoCloseabl
     }
   }
   private var classifier: FoodClassifier? = null
+  @Volatile private var isClosed = false
 
-  override suspend fun classify(photoPaths: List<String>): List<FoodLabel> = withContext(dispatcher) {
-    val model = classifier ?: FoodClassifier(appContext, getEnvironment(), labels).also { classifier = it }
-    val scores = photoPaths.flatMap { path ->
-      val bitmap = BitmapFactory.decodeFile(path) ?: return@flatMap emptyList()
-      try { model.infer(bitmap) } finally { bitmap.recycle() }
+  override suspend fun classify(photoPaths: List<String>): List<FoodLabel> {
+    if (isClosed) return emptyList()
+    return try {
+      withContext(dispatcher) {
+        if (isClosed) return@withContext emptyList()
+        val model = classifier ?: FoodClassifier(appContext, getEnvironment(), labels).also { classifier = it }
+        val scores = photoPaths.flatMap { path ->
+          val bitmap = BitmapFactory.decodeFile(path) ?: return@flatMap emptyList()
+          try { model.infer(bitmap) } finally { bitmap.recycle() }
+        }
+        scores.groupBy { it.name.lowercase() }.map { (_, candidates) -> candidates.maxBy { it.confidence } }
+          .sortedByDescending { it.confidence }.take(6)
+      }
+    } catch (_: java.util.concurrent.RejectedExecutionException) {
+      emptyList()
     }
-    scores.groupBy { it.name.lowercase() }.map { (_, candidates) -> candidates.maxBy { it.confidence } }
-      .sortedByDescending { it.confidence }.take(6)
   }
 
   override fun close() {
-    executor.execute {
-      runCatching { classifier?.close() }
-      classifier = null
+    if (isClosed) return
+    isClosed = true
+    if (!executor.isShutdown) {
+      runCatching {
+        executor.execute {
+          runCatching { classifier?.close() }
+          classifier = null
+        }
+      }
+      executor.shutdown()
     }
-    executor.shutdown()
   }
 
   private suspend fun getEnvironment(): Environment = EnvironmentHolder.get(appContext)

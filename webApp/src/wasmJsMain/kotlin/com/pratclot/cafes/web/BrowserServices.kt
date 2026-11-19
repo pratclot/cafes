@@ -29,8 +29,10 @@ internal class BrowserGeolocationFacade : LocationFacade {
   override fun observeWhileInUse(): Flow<UserPosition> = emptyFlow()
 
   override suspend fun refresh(): UserPosition? = suspendCancellableCoroutine { continuation ->
+    var cancelled = false
+    continuation.invokeOnCancellation { cancelled = true }
     browserRequestLocation { latitude, longitude, accuracy, error ->
-      if (!continuation.isActive) return@browserRequestLocation
+      if (cancelled || !continuation.isActive) return@browserRequestLocation
       if (error.isNotEmpty() || !latitude.isFinite() || !longitude.isFinite()) {
         continuation.resume(null)
       } else {
@@ -49,10 +51,14 @@ internal class BrowserAddressLookupFacade : AddressLookupFacade {
 internal class OpenStreetMapBrowserCafeFacade : NearbyCafeFacade {
   override suspend fun findNearby(position: UserPosition): List<CafeCandidate> =
     suspendCancellableCoroutine { continuation ->
+      var cancelled = false
+      continuation.invokeOnCancellation { cancelled = true }
       browserFindNearbyCafes(position.latitude, position.longitude) { rows ->
-        if (!continuation.isActive) return@browserFindNearbyCafes
-        if (rows == "!ERROR") {
-          continuation.resume(emptyList())
+        if (cancelled || !continuation.isActive) return@browserFindNearbyCafes
+        if (rows == "!ERROR" || rows.startsWith("!ERROR|")) {
+          val detail = rows.substringAfter('|', "").takeIf(String::isNotEmpty)?.let(::decodeBrowserValue)
+          val message = detail ?: "Nearby cafe search failed"
+          continuation.resumeWith(Result.failure(IllegalStateException(message)))
         } else {
           continuation.resume(parseCandidates(rows))
         }

@@ -19,6 +19,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 
@@ -53,18 +57,26 @@ class CafeLogStateHolder(
   private val _uiState = MutableStateFlow(CafeLogUiState(modelVersion = modelVersion))
   val uiState: StateFlow<CafeLogUiState> = _uiState.asStateFlow()
 
+  private val repositoryMutex = Mutex()
+  private val positionMutex = Mutex()
+  private val taggingSemaphore = Semaphore(2)
+
   private var locationJob: Job? = null
   private var locationTimeoutJob: Job? = null
+  private var cafeSearchJob: Job? = null
   private var cafeSearchAnchor: UserPosition? = null
   private var lastAddressPosition: UserPosition? = null
   private var lastAddressUpdate: Long = 0L
 
   init {
     scope.launch {
-      val (loaded, loadedArchived) = withContext(ioDispatcher) {
-        repository.load() to repository.loadArchived()
+      val (loaded, loadedArchived) = repositoryMutex.withLock {
+        val result = withContext(ioDispatcher) {
+          repository.load() to repository.loadArchived()
+        }
+        _uiState.update { it.copy(entries = result.first, archivedEntries = result.second) }
+        result
       }
-      _uiState.update { it.copy(entries = loaded, archivedEntries = loadedArchived) }
       schedulePendingClassifications(loaded + loadedArchived)
     }
   }
@@ -134,7 +146,7 @@ class CafeLogStateHolder(
     }
   }
 
-  private suspend fun onNewPosition(position: UserPosition) {
+  private suspend fun onNewPosition(position: UserPosition) = positionMutex.withLock {
     locationTimeoutJob?.cancel()
     _uiState.update {
       it.copy(
@@ -171,7 +183,8 @@ class CafeLogStateHolder(
   }
 
   private fun searchNearbyCafes(position: UserPosition) {
-    scope.launch {
+    cafeSearchJob?.cancel()
+    cafeSearchJob = scope.launch {
       _uiState.update { it.copy(searchingCafes = true, cafeSearchError = null) }
       try {
         val matches = facades.cafes.findNearby(position)
@@ -226,16 +239,19 @@ class CafeLogStateHolder(
   }
 
   suspend fun saveCapturedPhoto(id: String, photoPath: String, visitedAt: Long = clock()) {
-    val state = _uiState.value
-    val position = state.currentPosition
-    val entry = buildNewEntry(id = id, photoPaths = listOf(photoPath), visitedAt = visitedAt, state = state)
-    val updatedEntries = withContext(ioDispatcher) { repository.add(entry) }
-    _uiState.update {
-      it.copy(
-        entries = updatedEntries,
-        lastCapturedEntryId = entry.id,
-        showLocationHint = position == null,
-      )
+    val updatedEntries = repositoryMutex.withLock {
+      val state = _uiState.value
+      val position = state.currentPosition
+      val entry = buildNewEntry(id = id, photoPaths = listOf(photoPath), visitedAt = visitedAt, state = state)
+      val updated = withContext(ioDispatcher) { repository.add(entry) }
+      _uiState.update {
+        it.copy(
+          entries = updated,
+          lastCapturedEntryId = entry.id,
+          showLocationHint = position == null,
+        )
+      }
+      updated
     }
     schedulePendingClassifications(updatedEntries)
   }
@@ -244,63 +260,85 @@ class CafeLogStateHolder(
     if (savedPaths.isEmpty()) return
     scope.launch {
       if (entryId != null) {
-        val (active, archived) = withContext(ioDispatcher) {
-          repository.appendPhotos(entryId, savedPaths)
+        val (active, archived) = repositoryMutex.withLock {
+          val result = withContext(ioDispatcher) {
+            repository.appendPhotos(entryId, savedPaths)
+          }
+          _uiState.update { it.copy(entries = result.first, archivedEntries = result.second) }
+          result
         }
-        _uiState.update { it.copy(entries = active, archivedEntries = archived) }
         schedulePendingClassifications(active + archived)
       } else {
-        val state = _uiState.value
-        val position = state.currentPosition
-        val now = clock()
-        val entry = buildNewEntry(id = "cafe-$now", photoPaths = savedPaths, visitedAt = now, state = state)
-        val updatedEntries = withContext(ioDispatcher) { repository.add(entry) }
-        _uiState.update {
-          it.copy(
-            entries = updatedEntries,
-            lastCapturedEntryId = entry.id,
-            showLocationHint = position == null,
-          )
+        val updatedEntries = repositoryMutex.withLock {
+          val state = _uiState.value
+          val position = state.currentPosition
+          val now = clock()
+          val entry = buildNewEntry(id = "cafe-$now", photoPaths = savedPaths, visitedAt = now, state = state)
+          val updated = withContext(ioDispatcher) { repository.add(entry) }
+          _uiState.update {
+            it.copy(
+              entries = updated,
+              lastCapturedEntryId = entry.id,
+              showLocationHint = position == null,
+            )
+          }
+          updated
         }
         schedulePendingClassifications(updatedEntries)
       }
     }
   }
 
-  fun addManualTag(entry: CafeEntry, rawTag: String) {
+  fun addManualTag(entryId: String, rawTag: String) {
     val tag = rawTag.trim()
     if (tag.isEmpty()) return
     scope.launch {
-      val updatedEntry = entry.copy(
-        manualTags = (entry.manualTags + tag).distinctBy(String::lowercase),
-      )
-      val (active, archived) = withContext(ioDispatcher) { repository.update(updatedEntry) }
-      _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      repositoryMutex.withLock {
+        val entry = findEntryById(entryId) ?: return@withLock
+        val updatedEntry = entry.copy(
+          manualTags = (entry.manualTags + tag).distinctBy(String::lowercase),
+        )
+        val (active, archived) = withContext(ioDispatcher) { repository.update(updatedEntry) }
+        _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      }
     }
   }
 
-  fun archiveEntry(entry: CafeEntry) {
+  fun archiveEntry(entryId: String) {
     scope.launch {
-      val (active, archived) = withContext(ioDispatcher) { repository.archive(entry) }
-      _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      repositoryMutex.withLock {
+        val entry = _uiState.value.entries.firstOrNull { it.id == entryId } ?: return@withLock
+        val (active, archived) = withContext(ioDispatcher) { repository.archive(entry) }
+        _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      }
     }
   }
 
-  fun restoreEntry(entry: CafeEntry) {
+  fun restoreEntry(entryId: String) {
     scope.launch {
-      val (active, archived) = withContext(ioDispatcher) { repository.restore(entry) }
-      _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      repositoryMutex.withLock {
+        val entry = _uiState.value.archivedEntries.firstOrNull { it.id == entryId } ?: return@withLock
+        val (active, archived) = withContext(ioDispatcher) { repository.restore(entry) }
+        _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      }
     }
   }
 
-  fun retryClassification(entry: CafeEntry) {
+  fun retryClassification(entryId: String) {
     scope.launch {
-      val reset = entry.copy(taggingModelVersion = null)
-      val (active, archived) = withContext(ioDispatcher) { repository.update(reset) }
-      _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+      val reset = repositoryMutex.withLock {
+        val entry = findEntryById(entryId) ?: return@launch
+        val updated = entry.copy(taggingModelVersion = null)
+        val (active, archived) = withContext(ioDispatcher) { repository.update(updated) }
+        _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+        updated
+      }
       schedulePendingClassifications(listOf(reset))
     }
   }
+
+  private fun findEntryById(entryId: String): CafeEntry? =
+    (_uiState.value.entries + _uiState.value.archivedEntries).firstOrNull { it.id == entryId }
 
   private fun buildNewEntry(
     id: String,
@@ -333,56 +371,61 @@ class CafeLogStateHolder(
     pending.forEach { entry ->
       _uiState.update { it.copy(taggingIds = it.taggingIds + entry.id) }
       scope.launch {
-        val startedAt = clock()
-        var labels = emptyList<FoodLabel>()
-        var errorMessage: String? = null
         try {
-          labels = foodTagger.classify(entry.photoPaths)
-        } catch (cancelled: CancellationException) {
-          throw cancelled
-        } catch (error: Exception) {
-          CafeLog.w("CafeLogStateHolder", "Food classification failed for entry ${entry.id}", error)
-          errorMessage = error.message ?: error::class.simpleName ?: "Unknown classification error"
-        }
-        val completedAt = clock()
-        val run = ClassificationRun(
-          occurredAt = completedAt,
-          modelVersion = modelVersion,
-          photoCount = entry.photoPaths.size,
-          durationMillis = completedAt - startedAt,
-          outcome = when {
-            errorMessage != null -> "ERROR"
-            labels.isEmpty() -> "NO_DETECTIONS"
-            else -> "SUCCESS"
-          },
-          labels = labels,
-          errorMessage = errorMessage,
-        )
-        val latest = (_uiState.value.entries + _uiState.value.archivedEntries)
-          .firstOrNull { it.id == entry.id } ?: entry
-        val photosUnchanged = latest.photoPaths == entry.photoPaths
-        val updatedEntry = latest.copy(
-          autoTags = if (photosUnchanged && errorMessage == null) {
-            labels.filter { it.confidence >= 0.22f }.map { it.name }
-          } else {
-            latest.autoTags
-          },
-          taggingModelVersion = modelVersion.takeIf { photosUnchanged },
-          classificationRuns = (listOf(run) + latest.classificationRuns).take(50),
-        )
-        val (active, archived) = withContext(ioDispatcher) { repository.update(updatedEntry) }
-        _uiState.update {
-          it.copy(
-            entries = active,
-            archivedEntries = archived,
-            taggingIds = it.taggingIds - entry.id,
+          val (startedAt, labels, errorMessage) = taggingSemaphore.withPermit {
+            val started = clock()
+            var classified = emptyList<FoodLabel>()
+            var errorText: String? = null
+            try {
+              classified = foodTagger.classify(entry.photoPaths)
+            } catch (cancelled: CancellationException) {
+              throw cancelled
+            } catch (error: Exception) {
+              CafeLog.w("CafeLogStateHolder", "Food classification failed for entry ${entry.id}", error)
+              errorText = error.message ?: error::class.simpleName ?: "Unknown classification error"
+            }
+            Triple(started, classified, errorText)
+          }
+          val completedAt = clock()
+          val run = ClassificationRun(
+            occurredAt = completedAt,
+            modelVersion = modelVersion,
+            photoCount = entry.photoPaths.size,
+            durationMillis = completedAt - startedAt,
+            outcome = when {
+              errorMessage != null -> "ERROR"
+              labels.isEmpty() -> "NO_DETECTIONS"
+              else -> "SUCCESS"
+            },
+            labels = labels,
+            errorMessage = errorMessage,
           )
+          repositoryMutex.withLock {
+            val latest = findEntryById(entry.id) ?: entry
+            val photosUnchanged = latest.photoPaths == entry.photoPaths
+            val updatedEntry = latest.copy(
+              autoTags = if (photosUnchanged && errorMessage == null) {
+                labels.filter { it.confidence >= 0.22f }.map { it.name }
+              } else {
+                latest.autoTags
+              },
+              taggingModelVersion = modelVersion.takeIf { photosUnchanged },
+              classificationRuns = (listOf(run) + latest.classificationRuns).take(50),
+            )
+            val (active, archived) = withContext(ioDispatcher) { repository.update(updatedEntry) }
+            _uiState.update { it.copy(entries = active, archivedEntries = archived) }
+          }
+        } finally {
+          _uiState.update { it.copy(taggingIds = it.taggingIds - entry.id) }
         }
       }
     }
   }
 
   fun close() {
+    locationJob?.cancel()
+    locationTimeoutJob?.cancel()
+    cafeSearchJob?.cancel()
     (foodTagger as? AutoCloseable)?.close()
   }
 }

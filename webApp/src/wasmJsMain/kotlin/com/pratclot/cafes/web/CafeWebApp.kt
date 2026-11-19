@@ -466,13 +466,13 @@ internal fun CafeWebApp() {
                       onAddTag = {
                         val tag = tagDrafts[entry.id].orEmpty().trim()
                         if (tag.isNotEmpty()) {
-                          stateHolder.addManualTag(entry, tag)
+                          stateHolder.addManualTag(entry.id, tag)
                           tagDrafts = tagDrafts - entry.id
                         }
                       },
                       onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = { stateHolder.archiveEntry(entry) },
-                      onRestore = { stateHolder.restoreEntry(entry) },
+                      onArchive = { stateHolder.archiveEntry(entry.id) },
+                      onRestore = { stateHolder.restoreEntry(entry.id) },
                     )
                   }
                 }
@@ -557,13 +557,13 @@ internal fun CafeWebApp() {
                       onAddTag = {
                         val tag = tagDrafts[entry.id].orEmpty().trim()
                         if (tag.isNotEmpty()) {
-                          stateHolder.addManualTag(entry, tag)
+                          stateHolder.addManualTag(entry.id, tag)
                           tagDrafts = tagDrafts - entry.id
                         }
                       },
                       onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = { stateHolder.archiveEntry(entry) },
-                      onRestore = { stateHolder.restoreEntry(entry) },
+                      onArchive = { stateHolder.archiveEntry(entry.id) },
+                      onRestore = { stateHolder.restoreEntry(entry.id) },
                     )
                   }
                 }
@@ -575,7 +575,7 @@ internal fun CafeWebApp() {
         }
         if (detailsEntry != null) {
           val onRetryClassification = {
-            stateHolder.retryClassification(detailsEntry)
+            stateHolder.retryClassification(detailsEntry.id)
           }
           if (desktopLayout) {
             Dialog(onDismissRequest = { selectedDetailsEntryId = null }) {

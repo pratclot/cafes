@@ -622,7 +622,7 @@ internal fun VisitLogScreen(
               onAddTag = {
                 val tag = manualTagDrafts[entry.id].orEmpty().trim()
                 if (tag.isNotEmpty()) {
-                  viewModel.addManualTag(entry, tag)
+                  viewModel.addManualTag(entry.id, tag)
                   manualTagDrafts = manualTagDrafts - entry.id
                 }
               },
@@ -630,8 +630,8 @@ internal fun VisitLogScreen(
                 photoPickerEntryId = entry.id
                 photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
               },
-              onArchive = { viewModel.archiveEntry(entry) },
-              onRestore = { viewModel.restoreEntry(entry) },
+              onArchive = { viewModel.archiveEntry(entry.id) },
+              onRestore = { viewModel.restoreEntry(entry.id) },
               photoContent = { path, modifier -> AsyncLocalPhoto(path = path, modifier = modifier) },
             )
           }
@@ -761,7 +761,7 @@ internal fun VisitDetailScreen(
         )
         TextButton(
           onClick = {
-            if (isArchived) viewModel.restoreEntry(entry) else viewModel.archiveEntry(entry)
+            if (isArchived) viewModel.restoreEntry(entry.id) else viewModel.archiveEntry(entry.id)
           },
         ) {
           Text(if (isArchived) "Restore" else "Archive")
@@ -844,7 +844,7 @@ internal fun VisitDetailScreen(
         Spacer(Modifier.width(8.dp))
         TextButton(
           onClick = {
-            viewModel.addManualTag(entry, tagDraft)
+            viewModel.addManualTag(entry.id, tagDraft)
             tagDraft = ""
           },
           enabled = tagDraft.isNotBlank(),
@@ -858,7 +858,7 @@ internal fun VisitDetailScreen(
         entry = entry,
         currentModelVersion = entry.taggingModelVersion ?: state.modelVersion,
         tagging = tagging,
-        onRetryClassification = { viewModel.retryClassification(entry) },
+        onRetryClassification = { viewModel.retryClassification(entry.id) },
       )
     }
   }
