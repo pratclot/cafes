@@ -1,6 +1,7 @@
 package com.pratclot.cafes.data
 
 import com.pratclot.cafes.core.model.CafeEntry
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -35,7 +36,7 @@ class CafeLogRepositoryTest {
   }
 
   @Test
-  fun archiveAndRestore_moveEntryBetweenLists() {
+  fun archiveAndRestore_moveEntryBetweenLists() = runTest {
     val a = entry("a", visitedAt = 100L)
     val b = entry("b", visitedAt = 200L)
     val repo = InMemoryCafeLogRepository(initialActive = listOf(a, b))
@@ -50,7 +51,7 @@ class CafeLogRepositoryTest {
   }
 
   @Test
-  fun appendPhotos_resetsAutoTagsAndModelVersionAndDeduplicatesPaths() {
+  fun appendPhotos_resetsAutoTagsAndModelVersionAndDeduplicatesPaths() = runTest {
     val a = entry("a", photoPaths = listOf("p1.jpg")).copy(
       autoTags = listOf("Coffee"),
       taggingModelVersion = "v1",

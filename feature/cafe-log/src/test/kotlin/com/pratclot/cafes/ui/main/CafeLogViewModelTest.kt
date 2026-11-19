@@ -150,27 +150,27 @@ private class FakeCafeLogRepository(
   private var active = initialEntries.toMutableList()
   private var archived = initialArchived.toMutableList()
 
-  override fun load(): List<CafeEntry> = active.toList()
-  override fun loadArchived(): List<CafeEntry> = archived.toList()
+  override suspend fun load(): List<CafeEntry> = active.toList()
+  override suspend fun loadArchived(): List<CafeEntry> = archived.toList()
 
-  override fun add(entry: CafeEntry): List<CafeEntry> {
+  override suspend fun add(entry: CafeEntry): List<CafeEntry> {
     active = (listOf(entry) + active).distinctBy { it.id }.sortedByDescending { it.visitedAt }.toMutableList()
     return active.toList()
   }
 
-  override fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     active.removeAll { it.id == entry.id }
     archived = (listOf(entry) + archived).distinctBy { it.id }.sortedByDescending { it.visitedAt }.toMutableList()
     return active.toList() to archived.toList()
   }
 
-  override fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     archived.removeAll { it.id == entry.id }
     active = (listOf(entry) + active).distinctBy { it.id }.sortedByDescending { it.visitedAt }.toMutableList()
     return active.toList() to archived.toList()
   }
 
-  override fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
     fun append(list: MutableList<CafeEntry>) = list.map { entry ->
       if (entry.id == entryId) entry.copy(photoPaths = (entry.photoPaths + newPhotoPaths).distinct(), autoTags = emptyList(), taggingModelVersion = null) else entry
     }.toMutableList()
@@ -179,7 +179,7 @@ private class FakeCafeLogRepository(
     return active.toList() to archived.toList()
   }
 
-  override fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     active = active.map { if (it.id == entry.id) entry else it }.toMutableList()
     archived = archived.map { if (it.id == entry.id) entry else it }.toMutableList()
     return active.toList() to archived.toList()

@@ -1,8 +1,10 @@
 package com.pratclot.cafes.core.model
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.Serializable
 
 /** A saved cafe visit. The first photo path remains as a compatibility field for older records. */
+@Serializable
 data class CafeEntry(
   val id: String,
   val photoPath: String,
@@ -18,8 +20,10 @@ data class CafeEntry(
   val classificationRuns: List<ClassificationRun> = emptyList(),
 )
 
+@Serializable
 data class FoodLabel(val name: String, val confidence: Float)
 
+@Serializable
 data class ClassificationRun(
   val occurredAt: Long,
   val modelVersion: String,

@@ -37,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,6 +99,7 @@ internal fun CafeWebApp() {
       modelVersion = BROWSER_FOOD_MODEL_VERSION,
       ioDispatcher = Dispatchers.Default,
       clock = { browserNowMillis().toLong() },
+      idGenerator = { "cafe-${browserRandomUuid()}" },
     )
   }
   DisposableEffect(stateHolder) {
@@ -717,7 +719,12 @@ private fun VisitDetailsContent(
 
 @Composable
 private fun BrowserPhoto(dataUrl: String, modifier: Modifier = Modifier) {
-  val bitmap = remember(dataUrl) { decodeImage(dataUrl) }
+  val resolvedUrl by produceState<String?>(initialValue = if (dataUrl.startsWith("idb://")) null else dataUrl, dataUrl) {
+    if (dataUrl.startsWith("idb://")) {
+      value = loadPhotoBlobSuspend(dataUrl)
+    }
+  }
+  val bitmap = remember(resolvedUrl) { resolvedUrl?.takeIf(String::isNotEmpty)?.let(::decodeImage) }
   if (bitmap == null) {
     Box(modifier.background(Color(0xFFE9DED2), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)), contentAlignment = Alignment.Center) {
       Text(stringResource(Res.string.photo_unavailable))

@@ -130,6 +130,7 @@ import com.pratclot.cafes.ui.camera.CameraXPreview
 import com.pratclot.cafes.ui.camera.capturePhoto
 import com.pratclot.cafes.ui.navigation.CafeLogNavigation
 import java.io.File
+import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -185,14 +186,13 @@ internal fun CameraCaptureScreen(
     photoPickerEntryId = null
     if (uris.isNotEmpty()) {
       coroutineScope.launch {
-        val batchId = targetEntryId ?: "cafe-${System.currentTimeMillis()}"
         val savedPaths = withContext(Dispatchers.IO) {
-          uris.mapIndexedNotNull { index, uri ->
+          uris.mapNotNull { uri ->
             runCatching {
-              val file = File(context.filesDir, "cafe-$batchId-${System.currentTimeMillis()}-$index.photo")
+              val file = File(context.filesDir, "cafe-${UUID.randomUUID()}.photo")
               context.contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use(input::copyTo)
-              } ?: return@mapIndexedNotNull null
+              } ?: return@mapNotNull null
               file.absolutePath
             }.getOrNull()
           }
@@ -464,14 +464,13 @@ internal fun VisitLogScreen(
     photoPickerEntryId = null
     if (uris.isNotEmpty()) {
       coroutineScope.launch {
-        val batchId = targetId ?: "cafe-${System.currentTimeMillis()}"
         val savedPaths = withContext(Dispatchers.IO) {
-          uris.mapIndexedNotNull { index, uri ->
+          uris.mapNotNull { uri ->
             runCatching {
-              val file = File(context.filesDir, "cafe-$batchId-${System.currentTimeMillis()}-$index.photo")
+              val file = File(context.filesDir, "cafe-${UUID.randomUUID()}.photo")
               context.contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use(input::copyTo)
-              } ?: return@mapIndexedNotNull null
+              } ?: return@mapNotNull null
               file.absolutePath
             }.getOrNull()
           }
@@ -688,12 +687,12 @@ internal fun VisitDetailScreen(
     if (uris.isNotEmpty()) {
       coroutineScope.launch {
         val savedPaths = withContext(Dispatchers.IO) {
-          uris.mapIndexedNotNull { index, uri ->
+          uris.mapNotNull { uri ->
             runCatching {
-              val file = File(context.filesDir, "cafe-$entryId-${System.currentTimeMillis()}-$index.photo")
+              val file = File(context.filesDir, "cafe-${UUID.randomUUID()}.photo")
               context.contentResolver.openInputStream(uri)?.use { input ->
                 file.outputStream().use(input::copyTo)
-              } ?: return@mapIndexedNotNull null
+              } ?: return@mapNotNull null
               file.absolutePath
             }.getOrNull()
           }

@@ -53,6 +53,7 @@ class CafeLogStateHolder(
   private val modelVersion: String,
   private val ioDispatcher: CoroutineDispatcher = Dispatchers.Default,
   private val clock: () -> Long,
+  private val idGenerator: () -> String = { "cafe-${clock()}" },
 ) {
   private val _uiState = MutableStateFlow(CafeLogUiState(modelVersion = modelVersion))
   val uiState: StateFlow<CafeLogUiState> = _uiState.asStateFlow()
@@ -273,7 +274,7 @@ class CafeLogStateHolder(
           val state = _uiState.value
           val position = state.currentPosition
           val now = clock()
-          val entry = buildNewEntry(id = "cafe-$now", photoPaths = savedPaths, visitedAt = now, state = state)
+          val entry = buildNewEntry(id = idGenerator(), photoPaths = savedPaths, visitedAt = now, state = state)
           val updated = withContext(ioDispatcher) { repository.add(entry) }
           _uiState.update {
             it.copy(

@@ -1,15 +1,22 @@
 package com.pratclot.cafes.data
 
 import com.pratclot.cafes.core.model.CafeEntry
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class CafeLogSnapshot(
+  val active: List<CafeEntry> = emptyList(),
+  val archived: List<CafeEntry> = emptyList(),
+)
 
 interface CafeLogRepository {
-  fun load(): List<CafeEntry>
-  fun loadArchived(): List<CafeEntry>
-  fun add(entry: CafeEntry): List<CafeEntry>
-  fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
-  fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
-  fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>>
-  fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+  suspend fun load(): List<CafeEntry>
+  suspend fun loadArchived(): List<CafeEntry>
+  suspend fun add(entry: CafeEntry): List<CafeEntry>
+  suspend fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+  suspend fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
+  suspend fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>>
+  suspend fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>>
 }
 
 /** Shared pure-Kotlin list operations for CafeLogRepository implementations. */
@@ -68,37 +75,37 @@ class InMemoryCafeLogRepository(
   private var active = initialActive.sortedByDescending { it.visitedAt }
   private var archived = initialArchived.sortedByDescending { it.visitedAt }
 
-  override fun load(): List<CafeEntry> = active
+  override suspend fun load(): List<CafeEntry> = active
 
-  override fun loadArchived(): List<CafeEntry> = archived
+  override suspend fun loadArchived(): List<CafeEntry> = archived
 
-  override fun add(entry: CafeEntry): List<CafeEntry> {
+  override suspend fun add(entry: CafeEntry): List<CafeEntry> {
     active = CafeEntryListOps.add(active, entry)
     return active
   }
 
-  override fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     val result = CafeEntryListOps.archive(active, archived, entry)
     active = result.first
     archived = result.second
     return result
   }
 
-  override fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     val result = CafeEntryListOps.restore(active, archived, entry)
     active = result.first
     archived = result.second
     return result
   }
 
-  override fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
     val result = CafeEntryListOps.appendPhotos(active, archived, entryId, newPhotoPaths)
     active = result.first
     archived = result.second
     return result
   }
 
-  override fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
+  override suspend fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
     val result = CafeEntryListOps.update(active, archived, entry)
     active = result.first
     archived = result.second

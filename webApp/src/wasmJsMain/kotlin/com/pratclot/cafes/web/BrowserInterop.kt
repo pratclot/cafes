@@ -16,10 +16,82 @@ internal fun browserStorageWrite(key: String, value: String): Boolean = js(
   """(() => { try { window.localStorage.setItem(key, value); return true; } catch (_) { return false; } })()""",
 )
 
+internal fun browserStorageRemove(key: String): Unit = js(
+  """(() => { try { window.localStorage.removeItem(key); } catch (_) {} })()""",
+)
+
+internal fun browserRandomUuid(): String = js(
+  """(() => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2)))()""",
+)
+
+internal fun browserSavePhotoBlob(key: String, dataUrl: String, onDone: (Boolean) -> Unit): Unit = js(
+  """
+  (() => {
+    const openDb = () => new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error('IndexedDB unavailable')); return; }
+      const req = window.indexedDB.open('cafes-photos-db', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
+    });
+    window.__cafeOpenPhotoDb = window.__cafeOpenPhotoDb || openDb;
+    window.__cafeOpenPhotoDb()
+      .then((db) => new Promise((resolve, reject) => {
+        const tx = db.transaction('photos', 'readwrite');
+        tx.objectStore('photos').put(dataUrl, key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      }))
+      .then(() => onDone(true))
+      .catch(() => onDone(false));
+  })()
+  """,
+)
+
+internal fun browserLoadPhotoBlob(key: String, onDone: (String) -> Unit): Unit = js(
+  """
+  (() => {
+    const load = (window.__cafeLoadPhotoBlob = window.__cafeLoadPhotoBlob || ((k) => {
+      if (!window.indexedDB) return Promise.resolve('');
+      const openDb = window.__cafeOpenPhotoDb || (() => new Promise((resolve, reject) => {
+        const req = window.indexedDB.open('cafes-photos-db', 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      }));
+      window.__cafeOpenPhotoDb = openDb;
+      return openDb().then((db) => new Promise((resolve) => {
+        const tx = db.transaction('photos', 'readonly');
+        const req = tx.objectStore('photos').get(k);
+        req.onsuccess = () => resolve(typeof req.result === 'string' ? req.result : '');
+        req.onerror = () => resolve('');
+      })).catch(() => '');
+    }));
+    load(key).then(onDone).catch(() => onDone(''));
+  })()
+  """,
+)
+
 internal fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit): Unit = js(
   """
   Promise.resolve()
-    .then(() => window.cafeClassifyPhotos(photos.split('\n').filter(Boolean).map(decodeURIComponent)))
+    .then(async () => {
+      const rawList = photos.split('\n').filter(Boolean).map(decodeURIComponent);
+      const resolved = await Promise.all(rawList.map(async (item) => {
+        if (item.startsWith('idb://') && window.__cafeLoadPhotoBlob) {
+          const loaded = await window.__cafeLoadPhotoBlob(item);
+          return loaded || item;
+        }
+        return item;
+      }));
+      return window.cafeClassifyPhotos(resolved);
+    })
     .then(onComplete)
     .catch((error) => onComplete('!ERROR|' + encodeURIComponent((error && error.message) ? error.message : String(error))))
   """,

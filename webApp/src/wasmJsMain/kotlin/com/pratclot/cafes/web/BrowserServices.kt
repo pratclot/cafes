@@ -4,6 +4,7 @@ import com.pratclot.cafes.core.model.AddressLookupFacade
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.CafeLocationFacades
+import com.pratclot.cafes.core.model.CafeLog
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.LocationFacade
@@ -11,13 +12,18 @@ import com.pratclot.cafes.core.model.NearbyCafeFacade
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.data.CafeEntryListOps
 import com.pratclot.cafes.data.CafeLogRepository
+import com.pratclot.cafes.data.CafeLogSnapshot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
 import kotlin.coroutines.resume
 
-private const val ACTIVE_KEY = "cafe-log-active"
-private const val ARCHIVED_KEY = "cafe-log-archived"
+private const val LEGACY_ACTIVE_KEY = "cafe-log-active"
+private const val LEGACY_ARCHIVED_KEY = "cafe-log-archived"
+private const val SNAPSHOT_KEY = "cafe-log-snapshot-v2"
 
 internal fun createBrowserLocationFacades(): CafeLocationFacades = CafeLocationFacades(
   location = BrowserGeolocationFacade(),
@@ -66,48 +72,118 @@ internal class OpenStreetMapBrowserCafeFacade : NearbyCafeFacade {
     }
 }
 
+internal suspend fun savePhotoBlobSuspend(key: String, dataUrl: String): Boolean =
+  suspendCancellableCoroutine { continuation ->
+    var cancelled = false
+    continuation.invokeOnCancellation { cancelled = true }
+    browserSavePhotoBlob(key, dataUrl) { ok ->
+      if (!cancelled && continuation.isActive) continuation.resume(ok)
+    }
+  }
+
+internal suspend fun loadPhotoBlobSuspend(key: String): String =
+  suspendCancellableCoroutine { continuation ->
+    var cancelled = false
+    continuation.invokeOnCancellation { cancelled = true }
+    browserLoadPhotoBlob(key) { dataUrl ->
+      if (!cancelled && continuation.isActive) continuation.resume(dataUrl)
+    }
+  }
+
 internal class BrowserCafeLogRepository(
   private val onStorageWarning: (String?) -> Unit,
 ) : CafeLogRepository {
-  override fun load(): List<CafeEntry> = readEntries(ACTIVE_KEY)
-
-  override fun loadArchived(): List<CafeEntry> = readEntries(ARCHIVED_KEY)
-
-  override fun add(entry: CafeEntry): List<CafeEntry> {
-    val active = CafeEntryListOps.add(load(), entry)
-    persist(active, loadArchived())
-    return active
+  private val mutex = Mutex()
+  private val json = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
   }
 
-  override fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val result = CafeEntryListOps.archive(load(), loadArchived(), entry)
-    persist(result.first, result.second)
-    return result
+  override suspend fun load(): List<CafeEntry> = mutex.withLock {
+    readSnapshot().active
   }
 
-  override fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val result = CafeEntryListOps.restore(load(), loadArchived(), entry)
-    persist(result.first, result.second)
-    return result
+  override suspend fun loadArchived(): List<CafeEntry> = mutex.withLock {
+    readSnapshot().archived
   }
 
-  override fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val result = CafeEntryListOps.appendPhotos(load(), loadArchived(), entryId, newPhotoPaths)
-    persist(result.first, result.second)
-    return result
+  override suspend fun add(entry: CafeEntry): List<CafeEntry> = mutex.withLock {
+    val storedEntry = offloadEntryPhotos(entry)
+    val snapshot = readSnapshot()
+    val active = CafeEntryListOps.add(snapshot.active, storedEntry)
+    persist(active, snapshot.archived)
+    active
   }
 
-  override fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val result = CafeEntryListOps.update(load(), loadArchived(), entry)
+  override suspend fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val result = CafeEntryListOps.archive(snapshot.active, snapshot.archived, entry)
     persist(result.first, result.second)
-    return result
+    result
+  }
+
+  override suspend fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val result = CafeEntryListOps.restore(snapshot.active, snapshot.archived, entry)
+    persist(result.first, result.second)
+    result
+  }
+
+  override suspend fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> =
+    mutex.withLock {
+      val storedPaths = newPhotoPaths.map { offloadPhoto(it) }
+      val snapshot = readSnapshot()
+      val result = CafeEntryListOps.appendPhotos(snapshot.active, snapshot.archived, entryId, storedPaths)
+      persist(result.first, result.second)
+      result
+    }
+
+  override suspend fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val result = CafeEntryListOps.update(snapshot.active, snapshot.archived, entry)
+    persist(result.first, result.second)
+    result
+  }
+
+  private suspend fun readSnapshot(): CafeLogSnapshot {
+    val raw = browserStorageRead(SNAPSHOT_KEY)
+    if (raw != null) {
+      return runCatching { json.decodeFromString<CafeLogSnapshot>(raw) }
+        .onFailure { error -> CafeLog.w("BrowserCafeLogRepository", "Failed to decode snapshot", error) }
+        .getOrDefault(CafeLogSnapshot())
+    }
+
+    val legacyActive = browserStorageRead(LEGACY_ACTIVE_KEY)?.let(::parseLegacyEntries).orEmpty()
+    val legacyArchived = browserStorageRead(LEGACY_ARCHIVED_KEY)?.let(::parseLegacyEntries).orEmpty()
+    if (legacyActive.isEmpty() && legacyArchived.isEmpty()) {
+      return CafeLogSnapshot()
+    }
+    val migrated = CafeLogSnapshot(
+      active = legacyActive.map { offloadEntryPhotos(it) },
+      archived = legacyArchived.map { offloadEntryPhotos(it) },
+    )
+    persist(migrated.active, migrated.archived)
+    browserStorageRemove(LEGACY_ACTIVE_KEY)
+    browserStorageRemove(LEGACY_ARCHIVED_KEY)
+    return migrated
+  }
+
+  private suspend fun offloadEntryPhotos(entry: CafeEntry): CafeEntry {
+    val storedPaths = entry.photoPaths.map { offloadPhoto(it) }
+    val primary = storedPaths.firstOrNull() ?: offloadPhoto(entry.photoPath)
+    return entry.copy(photoPath = primary, photoPaths = storedPaths)
+  }
+
+  private suspend fun offloadPhoto(path: String): String {
+    if (!path.startsWith("data:")) return path
+    val key = "idb://photo-${browserRandomUuid()}"
+    return if (savePhotoBlobSuspend(key, path)) key else path
   }
 
   private fun persist(active: List<CafeEntry>, archived: List<CafeEntry>) {
-    val activeSaved = browserStorageWrite(ACTIVE_KEY, writeEntries(active))
-    val archivedSaved = browserStorageWrite(ARCHIVED_KEY, writeEntries(archived))
+    val saved = browserStorageWrite(SNAPSHOT_KEY, json.encodeToString(CafeLogSnapshot(active, archived)))
     onStorageWarning(
-      if (activeSaved && archivedSaved) {
+      if (saved) {
         null
       } else {
         "Browser storage is full or unavailable. This change may not survive a page reload."
@@ -133,10 +209,7 @@ private fun parseCandidates(data: String): List<CafeCandidate> {
   }.toList()
 }
 
-private fun readEntries(key: String): List<CafeEntry> =
-  browserStorageRead(key)?.let(::parseEntries).orEmpty()
-
-private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().mapNotNull { line ->
+private fun parseLegacyEntries(data: String): List<CafeEntry> = data.lineSequence().mapNotNull { line ->
   val fields = line.split('|')
   if (fields.size < 8) return@mapNotNull null
   runCatching {
@@ -158,23 +231,6 @@ private fun parseEntries(data: String): List<CafeEntry> = data.lineSequence().ma
     )
   }.getOrNull()
 }.toList()
-
-private fun writeEntries(entries: List<CafeEntry>): String = entries.joinToString("\n") { entry ->
-  listOf(
-    entry.id, entry.photoPath, entry.venue, entry.address, entry.visitedAt.toString(),
-    entry.latitude?.toString().orEmpty(), entry.longitude?.toString().orEmpty(), entry.photoPaths.joinToString(","),
-    entry.manualTags.joinToString(","), entry.autoTags.joinToString(","), entry.taggingModelVersion.orEmpty(),
-    serializeClassificationRuns(entry.classificationRuns),
-  ).joinToString("|") { encodeBrowserValue(it) }
-}
-
-private fun serializeClassificationRuns(runs: List<ClassificationRun>): String = runs.joinToString("\u001e") { run ->
-  listOf(
-    run.occurredAt.toString(), run.modelVersion, run.photoCount.toString(), run.durationMillis.toString(), run.outcome,
-    run.labels.joinToString("\u001d") { "${encodeBrowserValue(it.name)}\u001c${it.confidence}" },
-    run.errorMessage.orEmpty(),
-  ).joinToString("\u001f") { encodeBrowserValue(it) }
-}
 
 private fun parseClassificationRuns(encoded: String?): List<ClassificationRun> {
   val data = encoded?.let(::decodeBrowserValue).orEmpty()

@@ -16,6 +16,7 @@ import com.pratclot.cafes.data.LocalCafeLogRepository
 import com.pratclot.cafes.location.create
 import com.pratclot.cafes.recognition.AndroidFoodTaggerFacade
 import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,7 @@ class CafeLogViewModel(
     modelVersion = modelVersion,
     ioDispatcher = ioDispatcher,
     clock = clock,
+    idGenerator = { "cafe-${UUID.randomUUID()}" },
   )
 
   val uiState: StateFlow<CafeLogUiState> = stateHolder.uiState
@@ -54,12 +56,13 @@ class CafeLogViewModel(
   fun saveCapturedBitmap(bitmap: Bitmap, filesDir: File) {
     viewModelScope.launch {
       val now = clock()
-      val file = File(filesDir, "cafe-$now.jpg")
+      val id = "cafe-${UUID.randomUUID()}"
+      val file = File(filesDir, "$id.jpg")
       withContext(ioDispatcher) {
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it) }
       }
       stateHolder.saveCapturedPhoto(
-        id = file.nameWithoutExtension,
+        id = id,
         photoPath = file.absolutePath,
         visitedAt = now,
       )

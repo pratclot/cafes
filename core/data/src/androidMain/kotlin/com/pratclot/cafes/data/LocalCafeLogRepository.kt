@@ -2,123 +2,172 @@ package com.pratclot.cafes.data
 
 import android.content.Context
 import com.pratclot.cafes.core.model.CafeEntry
+import com.pratclot.cafes.core.model.CafeLog
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import java.io.File
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Local-first Android storage backed by SharedPreferences. */
+/** Local-first Android storage backed by atomic JSON file in filesDir, with legacy SharedPreferences migration. */
 class LocalCafeLogRepository(context: Context) : CafeLogRepository {
-  private val preferences = context.getSharedPreferences("cafe-log", Context.MODE_PRIVATE)
-
-  override fun load(): List<CafeEntry> = loadFrom("entries")
-
-  override fun loadArchived(): List<CafeEntry> = loadFrom("archived_entries")
-
-  private fun loadFrom(key: String): List<CafeEntry> = runCatching {
-    val json = JSONArray(preferences.getString(key, "[]"))
-    (0 until json.length()).mapNotNull { index ->
-      val item = json.optJSONObject(index) ?: return@mapNotNull null
-      val primaryPhoto = item.getString("photoPath")
-      val photos = item.optJSONArray("photoPaths")?.let { array ->
-        (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
-      }.orEmpty().ifEmpty { listOf(primaryPhoto) }
-      CafeEntry(
-        item.getString("id"),
-        primaryPhoto,
-        item.getString("venue"),
-        item.optString("address"),
-        item.getLong("visitedAt"),
-        item.optionalDouble("latitude"),
-        item.optionalDouble("longitude"),
-        photos,
-        item.optJSONArray("manualTags").toStringList(),
-        item.optJSONArray("autoTags").toStringList(),
-        item.optString("taggingModelVersion").takeIf(String::isNotBlank),
-        item.optJSONArray("classificationRuns").toClassificationRuns(),
-      )
-    }.filter { entry -> entry.photoPaths.any { File(it).exists() } }.sortedByDescending { it.visitedAt }
-  }.getOrDefault(emptyList())
-
-  override fun add(entry: CafeEntry): List<CafeEntry> {
-    val entries = CafeEntryListOps.add(load(), entry)
-    save("entries", entries)
-    return entries
+  private val filesDir = context.filesDir
+  private val storageFile = File(filesDir, "cafe_log.json")
+  private val legacyPreferences = context.getSharedPreferences("cafe-log", Context.MODE_PRIVATE)
+  private val mutex = Mutex()
+  private val json = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
   }
 
-  override fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val (active, archived) = CafeEntryListOps.archive(load(), loadArchived(), entry)
-    save("entries", active)
-    save("archived_entries", archived)
-    return active to archived
+  override suspend fun load(): List<CafeEntry> = mutex.withLock {
+    readSnapshot().active
   }
 
-  override fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val (active, archived) = CafeEntryListOps.restore(load(), loadArchived(), entry)
-    save("entries", active)
-    save("archived_entries", archived)
-    return active to archived
+  override suspend fun loadArchived(): List<CafeEntry> = mutex.withLock {
+    readSnapshot().archived
   }
 
-  override fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val (active, archived) = CafeEntryListOps.appendPhotos(load(), loadArchived(), entryId, newPhotoPaths)
-    save("entries", active)
-    save("archived_entries", archived)
-    return active to archived
+  override suspend fun add(entry: CafeEntry): List<CafeEntry> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val active = CafeEntryListOps.add(snapshot.active, entry)
+    writeSnapshot(snapshot.copy(active = active))
+    active
   }
 
-  override fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> {
-    val (active, archived) = CafeEntryListOps.update(load(), loadArchived(), entry)
-    save("entries", active)
-    save("archived_entries", archived)
-    return active to archived
+  override suspend fun archive(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val (active, archived) = CafeEntryListOps.archive(snapshot.active, snapshot.archived, entry)
+    writeSnapshot(CafeLogSnapshot(active = active, archived = archived))
+    active to archived
   }
 
-  private fun save(key: String, entries: List<CafeEntry>) {
-    val json = JSONArray()
-    entries.forEach { item ->
-      val photos = JSONArray()
-      item.photoPaths.forEach(photos::put)
-      val manualTags = JSONArray().also { array -> item.manualTags.forEach(array::put) }
-      val autoTags = JSONArray().also { array -> item.autoTags.forEach(array::put) }
-      val runs = JSONArray().also { array ->
-        item.classificationRuns.forEach { run ->
-          val labels = JSONArray().also { tagArray ->
-            run.labels.forEach { label ->
-              tagArray.put(JSONObject().put("name", label.name).put("confidence", label.confidence.toDouble()))
-            }
-          }
-          array.put(
-            JSONObject()
-              .put("occurredAt", run.occurredAt)
-              .put("modelVersion", run.modelVersion)
-              .put("photoCount", run.photoCount)
-              .put("durationMillis", run.durationMillis)
-              .put("outcome", run.outcome)
-              .put("labels", labels)
-              .put("errorMessage", run.errorMessage),
-          )
-        }
+  override suspend fun restore(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val (active, archived) = CafeEntryListOps.restore(snapshot.active, snapshot.archived, entry)
+    writeSnapshot(CafeLogSnapshot(active = active, archived = archived))
+    active to archived
+  }
+
+  override suspend fun appendPhotos(entryId: String, newPhotoPaths: List<String>): Pair<List<CafeEntry>, List<CafeEntry>> =
+    mutex.withLock {
+      val snapshot = readSnapshot()
+      val (active, archived) = CafeEntryListOps.appendPhotos(snapshot.active, snapshot.archived, entryId, newPhotoPaths)
+      writeSnapshot(CafeLogSnapshot(active = active, archived = archived))
+      active to archived
+    }
+
+  override suspend fun update(entry: CafeEntry): Pair<List<CafeEntry>, List<CafeEntry>> = mutex.withLock {
+    val snapshot = readSnapshot()
+    val (active, archived) = CafeEntryListOps.update(snapshot.active, snapshot.archived, entry)
+    writeSnapshot(CafeLogSnapshot(active = active, archived = archived))
+    active to archived
+  }
+
+  private fun readSnapshot(): CafeLogSnapshot {
+    if (!storageFile.exists()) {
+      val migrated = migrateFromLegacyPreferences()
+      if (migrated.active.isNotEmpty() || migrated.archived.isNotEmpty()) {
+        writeSnapshot(migrated)
       }
-      json.put(
-        JSONObject()
-          .put("id", item.id)
-          .put("photoPath", item.photoPath)
-          .put("photoPaths", photos)
-          .put("venue", item.venue)
-          .put("address", item.address)
-          .put("visitedAt", item.visitedAt)
-          .putOptional("latitude", item.latitude)
-          .putOptional("longitude", item.longitude)
-          .put("manualTags", manualTags)
-          .put("autoTags", autoTags)
-          .put("taggingModelVersion", item.taggingModelVersion)
-          .put("classificationRuns", runs),
+      legacyPreferences.edit().clear().apply()
+      return migrated
+    }
+
+    val raw = runCatching { storageFile.readText() }.getOrElse { error ->
+      CafeLog.w("LocalCafeLogRepository", "Failed to read cafe_log.json", error)
+      return CafeLogSnapshot()
+    }
+    val parsed = runCatching { json.decodeFromString<CafeLogSnapshot>(raw) }.getOrElse { error ->
+      CafeLog.w("LocalCafeLogRepository", "Failed to decode cafe_log.json", error)
+      return CafeLogSnapshot()
+    }
+    return CafeLogSnapshot(
+      active = parsed.active.map(::sanitizePhotos).sortedByDescending { it.visitedAt },
+      archived = parsed.archived.map(::sanitizePhotos).sortedByDescending { it.visitedAt },
+    )
+  }
+
+  private fun sanitizePhotos(entry: CafeEntry): CafeEntry {
+    val existing = entry.photoPaths.filter { path -> path.isNotBlank() && File(path).exists() }
+    return if (existing.size == entry.photoPaths.size && entry.photoPath == existing.firstOrNull().orEmpty()) {
+      entry
+    } else {
+      entry.copy(
+        photoPath = existing.firstOrNull().orEmpty(),
+        photoPaths = existing,
       )
     }
-    preferences.edit().putString(key, json.toString()).apply()
   }
+
+  private fun writeSnapshot(snapshot: CafeLogSnapshot) {
+    filesDir.mkdirs()
+    val tmpFile = File(filesDir, "cafe_log.json.tmp")
+    val encoded = json.encodeToString(snapshot)
+    tmpFile.writeText(encoded)
+    if (!tmpFile.renameTo(storageFile)) {
+      storageFile.writeText(encoded)
+      tmpFile.delete()
+    }
+    cleanupOrphanPhotos(snapshot)
+  }
+
+  private fun cleanupOrphanPhotos(snapshot: CafeLogSnapshot) {
+    val referenced = (snapshot.active + snapshot.archived)
+      .flatMap { it.photoPaths }
+      .mapNotNull { path -> runCatching { File(path).canonicalPath }.getOrNull() }
+      .toSet()
+    filesDir.listFiles()?.forEach { file ->
+      val name = file.name
+      val isManagedPhoto = name.startsWith("cafe-") && (name.endsWith(".jpg") || name.endsWith(".photo"))
+      if (file.isFile && isManagedPhoto) {
+        val canonical = runCatching { file.canonicalPath }.getOrNull()
+        if (canonical != null && canonical !in referenced) {
+          file.delete()
+        }
+      }
+    }
+  }
+
+  private fun migrateFromLegacyPreferences(): CafeLogSnapshot {
+    val active = readLegacyList("entries")
+    val archived = readLegacyList("archived_entries")
+    return CafeLogSnapshot(active = active, archived = archived)
+  }
+
+  private fun readLegacyList(key: String): List<CafeEntry> = runCatching {
+    val array = JSONArray(legacyPreferences.getString(key, "[]"))
+    (0 until array.length()).mapNotNull { index ->
+      runCatching {
+        val item = array.optJSONObject(index) ?: return@runCatching null
+        val primaryPhoto = item.getString("photoPath")
+        val photos = item.optJSONArray("photoPaths")?.let { arr ->
+          (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) }
+        }.orEmpty().ifEmpty { listOf(primaryPhoto) }
+        sanitizePhotos(
+          CafeEntry(
+            id = item.getString("id"),
+            photoPath = primaryPhoto,
+            venue = item.getString("venue"),
+            address = item.optString("address"),
+            visitedAt = item.getLong("visitedAt"),
+            latitude = item.optionalDouble("latitude"),
+            longitude = item.optionalDouble("longitude"),
+            photoPaths = photos,
+            manualTags = item.optJSONArray("manualTags").toStringList(),
+            autoTags = item.optJSONArray("autoTags").toStringList(),
+            taggingModelVersion = item.optString("taggingModelVersion").takeIf(String::isNotBlank),
+            classificationRuns = item.optJSONArray("classificationRuns").toClassificationRuns(),
+          ),
+        )
+      }.onFailure { error ->
+        CafeLog.w("LocalCafeLogRepository", "Skipping corrupt legacy entry at index $index", error)
+      }.getOrNull()
+    }.sortedByDescending { it.visitedAt }
+  }.getOrDefault(emptyList())
 
   private fun JSONObject.optionalDouble(key: String): Double? =
     if (isNull(key) || !has(key)) null else optDouble(key)
@@ -150,7 +199,4 @@ class LocalCafeLogRepository(context: Context) : CafeLogRepository {
       )
     }
   }.orEmpty()
-
-  private fun JSONObject.putOptional(key: String, value: Double?): JSONObject =
-    apply { if (value == null) put(key, JSONObject.NULL) else put(key, value) }
 }
