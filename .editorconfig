@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+indent_style = space
+indent_size = 2
+ktlint_standard_function-naming = disabled
+ktlint_standard_no-wildcard-imports = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_max-line-length = disabled
+ktlint_standard_final-newline = disabled
+ktlint_standard_if-else-wrapping = disabled
+ktlint_standard_multiline-if-else = disabled
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_string-template-indent = disabled
+ktlint_standard_blank-line-before-declaration = disabled
+ktlint_standard_import-ordering = disabled
+ktlint_standard_comment-spacing = disabled
+ktlint_standard_no-consecutive-blank-lines = disabled
+ktlint_standard_block-comment-initial-star-alignment = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_wrapping = disabled
+ktlint_standard_no-blank-line-before-rbrace = disabled
+
+[**/build/**]
+ktlint = disabled

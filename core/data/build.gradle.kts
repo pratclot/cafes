@@ -13,6 +13,7 @@ kotlin {
     namespace = "com.pratclot.cafes.core.data"
     compileSdk = 37
     minSdk = 24
+    withHostTest {}
     compilerOptions {
       jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
@@ -22,6 +23,10 @@ kotlin {
     commonMain.dependencies {
       api(project(":core:model"))
       implementation(project(":core:passthrough"))
+    }
+    commonTest.dependencies {
+      implementation(kotlin("test"))
+      implementation(libs.kotlinx.coroutines.test)
     }
   }
 }

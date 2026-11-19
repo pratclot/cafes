@@ -3,6 +3,7 @@ package com.pratclot.cafes.data
 import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.CafeLocationFacades
+import com.pratclot.cafes.core.model.CafeLog
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.model.FoodLabel
 import com.pratclot.cafes.core.model.FoodTaggerFacade
@@ -96,8 +97,9 @@ class CafeLogStateHolder(
           }
         } catch (cancelled: CancellationException) {
           throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
           // Live updates can still provide a position if a one-shot fix is unavailable.
+          CafeLog.w("CafeLogStateHolder", "Initial location refresh failed", error)
         }
       }
       facades.location.observeWhileInUse().collect { position ->
@@ -121,7 +123,8 @@ class CafeLogStateHolder(
         }
       } catch (cancelled: CancellationException) {
         throw cancelled
-      } catch (_: Exception) {
+      } catch (error: Exception) {
+        CafeLog.w("CafeLogStateHolder", "Manual location refresh failed", error)
         _uiState.update {
           it.copy(refreshMessage = "Couldn’t refresh location. Try again in a moment.")
         }
@@ -145,7 +148,14 @@ class CafeLogStateHolder(
     if (addressMoved || now - lastAddressUpdate > 120_000L) {
       lastAddressPosition = position
       lastAddressUpdate = now
-      val address = runCatching { facades.address.describe(position) }.getOrNull()
+      val address = try {
+        facades.address.describe(position)
+      } catch (cancelled: CancellationException) {
+        throw cancelled
+      } catch (error: Exception) {
+        CafeLog.w("CafeLogStateHolder", "Address lookup failed", error)
+        null
+      }
       _uiState.update { it.copy(currentAddress = address) }
     }
 
@@ -175,7 +185,8 @@ class CafeLogStateHolder(
         }
       } catch (cancelled: CancellationException) {
         throw cancelled
-      } catch (_: Exception) {
+      } catch (error: Exception) {
+        CafeLog.w("CafeLogStateHolder", "Nearby cafe search failed", error)
         if (cafeSearchAnchor == position) {
           _uiState.update {
             it.copy(
@@ -330,6 +341,7 @@ class CafeLogStateHolder(
         } catch (cancelled: CancellationException) {
           throw cancelled
         } catch (error: Exception) {
+          CafeLog.w("CafeLogStateHolder", "Food classification failed for entry ${entry.id}", error)
           errorMessage = error.message ?: error::class.simpleName ?: "Unknown classification error"
         }
         val completedAt = clock()
