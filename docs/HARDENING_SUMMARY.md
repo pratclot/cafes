@@ -92,3 +92,10 @@ This document summarizes the 7 incremental commits applied to harden the `cafes`
 - **Nginx security headers & deployment**:
   - Added `deploy/nginx.conf` with `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and a WasmJS-compatible `Content-Security-Policy` (`'wasm-unsafe-eval'`).
   - Mounted `deploy/nginx.conf` in `deploy/compose.yaml` and updated `deploy/publish-vm.sh` to upload `nginx.conf` and prune old releases (keeping latest 5).
+
+---
+
+## Follow-up — Typed WasmJS Interop & ES Module Extraction
+- **Refactored `webApp/src/wasmJsMain/kotlin/com/pratclot/cafes/web/BrowserInterop.kt`**:
+  - Replaced raw `js("...")` calls for `localStorage`, `encodeURIComponent`/`decodeURIComponent`, `Date.now()`, and `crypto.randomUUID()` with typed `kotlinx.browser.window` and Kotlin `external` declarations.
+  - Extracted IndexedDB photo storage (with a single shared `openPhotoDb`/`loadPhotoBlob` helper), `<input type="file">` photo picking, `getUserMedia` camera preview/capture, geolocation, and Overpass `fetch` (`AbortController` timeout + mirror fallback) into `webApp/src/wasmJsMain/resources/browser-interop.mjs`, bundled by webpack via `@JsModule("./browser-interop.mjs")` + `external fun`.
