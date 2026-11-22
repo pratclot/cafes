@@ -99,3 +99,13 @@ This document summarizes the 7 incremental commits applied to harden the `cafes`
 - **Refactored `webApp/src/wasmJsMain/kotlin/com/pratclot/cafes/web/BrowserInterop.kt`**:
   - Replaced raw `js("...")` calls for `localStorage`, `encodeURIComponent`/`decodeURIComponent`, `Date.now()`, and `crypto.randomUUID()` with typed `kotlinx.browser.window` and Kotlin `external` declarations.
   - Extracted IndexedDB photo storage (with a single shared `openPhotoDb`/`loadPhotoBlob` helper), `<input type="file">` photo picking, `getUserMedia` camera preview/capture, geolocation, and Overpass `fetch` (`AbortController` timeout + mirror fallback) into `webApp/src/wasmJsMain/resources/browser-interop.mjs`, bundled by webpack via `@JsModule("./browser-interop.mjs")` + `external fun`.
+
+---
+
+## Follow-up — Composable Signature Refactoring & Full String Resource Extraction
+- **Grouped `@Composable` parameters into `@Immutable` state models & `sealed interface` action handlers**:
+  - `:core:ui`: Refactored `SharedCompactLocationBar` (`CompactLocationBarState` / `CompactLocationBarAction`), `SharedVisitEntryCard` (`VisitEntryCardState` / `VisitEntryCardAction`), `SharedVisitDetailsContent` (`VisitDetailsState` / `VisitDetailsAction`), and `SharedClassificationSection` (`ClassificationSectionState`).
+  - `:feature:cafe-log`: Refactored `CurrentLocationBar` (`CurrentLocationBarState` / `CurrentLocationBarAction`), `NearbyCafeSheet` (`NearbyCafeSheetState` / `NearbyCafeSheetAction`), and extracted stateless `VisitDetailContent` (`VisitDetailContentState` / `VisitDetailAction`) in `CafeLogVisitDetailScreen.kt`.
+  - `:webApp`: Updated `CompactLocationBar`, `VisitCard`, `VisitDetailsScreen`, and `VisitDetailsContent` in `CafeWebVisitComponents.kt` and `CafeWebApp.kt` to consume the shared `@Immutable` state and `sealed interface` action models.
+- **Extracted remaining hardcoded UI strings**:
+  - Audited `:core:ui`, `:feature:cafe-log`, and `:webApp` (`ClassificationRunDetails.kt`, `SharedVisitEntryCard.kt`, `CafeLogLocationComponents.kt`, `CafeLogVisitDetailScreen.kt`, `CameraPreview.kt`, `MainScreen.kt`, `CafeWebApp.kt`) and moved all remaining user-facing strings and plurals into `core/ui/src/commonMain/composeResources/values/strings.xml`.

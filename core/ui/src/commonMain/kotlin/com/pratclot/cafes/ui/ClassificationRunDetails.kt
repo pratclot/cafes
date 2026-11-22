@@ -15,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.ClassificationRun
 import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_close
 import com.pratclot.cafes.core.ui.generated.resources.classification_current_model
 import com.pratclot.cafes.core.ui.generated.resources.classification_detected_labels
 import com.pratclot.cafes.core.ui.generated.resources.classification_error
@@ -70,23 +72,43 @@ fun ClassificationRunDetails(run: ClassificationRun) {
   }
 }
 
+@Immutable
+data class VisitDetailsState(
+  val entry: CafeEntry,
+  val currentModelVersion: String,
+  val tagging: Boolean,
+  val showCloseButton: Boolean = false,
+  val closeLabel: String? = null,
+)
+
+sealed interface VisitDetailsAction {
+  data object Close : VisitDetailsAction
+  data object RetryClassification : VisitDetailsAction
+}
+
+@Immutable
+data class ClassificationSectionState(
+  val entry: CafeEntry,
+  val currentModelVersion: String,
+  val tagging: Boolean,
+)
+
 @Composable
 fun SharedVisitDetailsContent(
-  entry: CafeEntry,
-  currentModelVersion: String,
-  tagging: Boolean,
-  onClose: (() -> Unit)? = null,
-  closeLabel: String = "Close",
-  onRetryClassification: () -> Unit,
+  state: VisitDetailsState,
+  onAction: (VisitDetailsAction) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val entry = state.entry
   val latitude = entry.latitude
   val longitude = entry.longitude
   SelectionContainer {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      if (onClose != null) {
+      if (state.showCloseButton) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-          TextButton(onClick = onClose) { Text(closeLabel) }
+          TextButton(onClick = { onAction(VisitDetailsAction.Close) }) {
+            Text(state.closeLabel ?: stringResource(Res.string.action_close))
+          }
           Spacer(Modifier.weight(1f))
           Text(
             pluralStringResource(Res.plurals.photo_count, entry.photoPaths.size, entry.photoPaths.size),
@@ -122,10 +144,12 @@ fun SharedVisitDetailsContent(
       }
       HorizontalDivider(Modifier.padding(vertical = 8.dp))
       SharedClassificationSection(
-        entry = entry,
-        currentModelVersion = currentModelVersion,
-        tagging = tagging,
-        onRetryClassification = onRetryClassification,
+        state = ClassificationSectionState(
+          entry = entry,
+          currentModelVersion = state.currentModelVersion,
+          tagging = state.tagging,
+        ),
+        onRetryClassification = { onAction(VisitDetailsAction.RetryClassification) },
       )
     }
   }
@@ -133,55 +157,57 @@ fun SharedVisitDetailsContent(
 
 @Composable
 fun SharedClassificationSection(
-  entry: CafeEntry,
-  currentModelVersion: String,
-  tagging: Boolean,
+  state: ClassificationSectionState,
   onRetryClassification: () -> Unit,
+  modifier: Modifier = Modifier,
 ) {
-  Text(stringResource(Res.string.classification_heading), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-  Text(
-    stringResource(Res.string.classification_current_model, currentModelVersion),
-    style = MaterialTheme.typography.bodySmall,
-    color = MaterialTheme.colorScheme.onSurfaceVariant,
-  )
-  if (tagging) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-      Text(
-        stringResource(Res.string.classification_running),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
-    }
-  }
-  Text(
-    stringResource(Res.string.classification_run_history, entry.classificationRuns.size),
-    style = MaterialTheme.typography.labelLarge,
-    modifier = Modifier.padding(top = 4.dp),
-  )
-  if (entry.classificationRuns.isEmpty()) {
+  val entry = state.entry
+  Column(modifier = modifier) {
+    Text(stringResource(Res.string.classification_heading), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     Text(
-      stringResource(
-        if (entry.taggingModelVersion == null) Res.string.classification_none_yet
-        else Res.string.classification_legacy_history,
-      ),
+      stringResource(Res.string.classification_current_model, state.currentModelVersion),
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-  } else {
-    entry.classificationRuns.forEach { run ->
-      ClassificationRunDetails(run)
+    if (state.tagging) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        Text(
+          stringResource(Res.string.classification_running),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
     }
-  }
-  OutlinedButton(
-    onClick = onRetryClassification,
-    enabled = !tagging,
-    modifier = Modifier.padding(top = 8.dp),
-  ) {
     Text(
-      stringResource(
-        if (tagging) Res.string.classification_running else Res.string.classification_retry,
-      ),
+      stringResource(Res.string.classification_run_history, entry.classificationRuns.size),
+      style = MaterialTheme.typography.labelLarge,
+      modifier = Modifier.padding(top = 4.dp),
     )
+    if (entry.classificationRuns.isEmpty()) {
+      Text(
+        stringResource(
+          if (entry.taggingModelVersion == null) Res.string.classification_none_yet
+          else Res.string.classification_legacy_history,
+        ),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    } else {
+      entry.classificationRuns.forEach { run ->
+        ClassificationRunDetails(run)
+      }
+    }
+    OutlinedButton(
+      onClick = onRetryClassification,
+      enabled = !state.tagging,
+      modifier = Modifier.padding(top = 8.dp),
+    ) {
+      Text(
+        stringResource(
+          if (state.tagging) Res.string.classification_running else Res.string.classification_retry,
+        ),
+      )
+    }
   }
 }

@@ -94,21 +94,18 @@ import com.pratclot.cafes.core.model.CafeCandidate
 import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.model.UserPosition
 import com.pratclot.cafes.core.ui.generated.resources.Res
-import com.pratclot.cafes.core.ui.generated.resources.action_add
 import com.pratclot.cafes.core.ui.generated.resources.action_add_photo_short
-import com.pratclot.cafes.core.ui.generated.resources.action_add_photos
-import com.pratclot.cafes.core.ui.generated.resources.action_back
+import com.pratclot.cafes.core.ui.generated.resources.action_archive_count
 import com.pratclot.cafes.core.ui.generated.resources.action_back_to_camera
-import com.pratclot.cafes.core.ui.generated.resources.action_change
 import com.pratclot.cafes.core.ui.generated.resources.action_details
 import com.pratclot.cafes.core.ui.generated.resources.action_from_disk
+import com.pratclot.cafes.core.ui.generated.resources.action_log_count
 import com.pratclot.cafes.core.ui.generated.resources.action_log_short
 import com.pratclot.cafes.core.ui.generated.resources.action_take_first_photo
 import com.pratclot.cafes.core.ui.generated.resources.action_take_photo
-import com.pratclot.cafes.core.ui.generated.resources.action_use_this_cafe
 import com.pratclot.cafes.core.ui.generated.resources.action_visit_log_count
-import com.pratclot.cafes.core.ui.generated.resources.detail_placeholder_title
-import com.pratclot.cafes.core.ui.generated.resources.detail_visit_not_found
+import com.pratclot.cafes.core.ui.generated.resources.app_title
+import com.pratclot.cafes.core.ui.generated.resources.archived_visits_title
 import com.pratclot.cafes.core.ui.generated.resources.empty_archive_subtitle
 import com.pratclot.cafes.core.ui.generated.resources.empty_archive_title
 import com.pratclot.cafes.core.ui.generated.resources.empty_log_subtitle
@@ -116,14 +113,14 @@ import com.pratclot.cafes.core.ui.generated.resources.empty_log_title
 import com.pratclot.cafes.core.ui.generated.resources.empty_search_subtitle
 import com.pratclot.cafes.core.ui.generated.resources.empty_search_title
 import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes_on_device
-import com.pratclot.cafes.core.ui.generated.resources.location_enter_cafe_name
-import com.pratclot.cafes.core.ui.generated.resources.location_looking_nearby
-import com.pratclot.cafes.core.ui.generated.resources.location_which_cafe
+import com.pratclot.cafes.core.ui.generated.resources.location_hint_saved_photo
+import com.pratclot.cafes.core.ui.generated.resources.saved_to_venue_count
 import com.pratclot.cafes.core.ui.generated.resources.search_label
 import com.pratclot.cafes.core.ui.generated.resources.search_placeholder
-import com.pratclot.cafes.core.ui.generated.resources.visit_tag_input_label
-import com.pratclot.cafes.ui.SharedClassificationSection
+import com.pratclot.cafes.core.ui.generated.resources.visit_log_title
 import com.pratclot.cafes.ui.SharedVisitEntryCard
+import com.pratclot.cafes.ui.VisitEntryCardAction
+import com.pratclot.cafes.ui.VisitEntryCardState
 import org.jetbrains.compose.resources.stringResource
 import com.pratclot.cafes.location.hasLocationPermission
 import com.pratclot.cafes.ui.camera.CameraXPreview
@@ -270,7 +267,7 @@ internal fun CameraCaptureScreen(
         horizontalArrangement = Arrangement.SpaceBetween,
       ) {
         Text(
-          text = "Cafes",
+          text = stringResource(Res.string.app_title),
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.Bold,
         )
@@ -283,20 +280,26 @@ internal fun CameraCaptureScreen(
       }
 
       CurrentLocationBar(
-        position = state.currentPosition,
-        address = state.currentAddress,
-        selectedCafe = state.selectedCafe,
-        hasPermission = locationPermissionGranted,
-        locationUnavailable = state.locationUnavailable,
-        refreshing = state.refreshingLocation,
-        refreshMessage = state.refreshMessage,
-        onRefresh = {
-          if (locationPermissionGranted) viewModel.refreshLocation()
-          else permissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-          )
+        state = CurrentLocationBarState(
+          position = state.currentPosition,
+          address = state.currentAddress,
+          selectedCafe = state.selectedCafe,
+          hasPermission = locationPermissionGranted,
+          locationUnavailable = state.locationUnavailable,
+          refreshing = state.refreshingLocation,
+          refreshMessage = state.refreshMessage,
+        ),
+        onAction = { action ->
+          when (action) {
+            CurrentLocationBarAction.OpenPicker -> openCafeSelector()
+            CurrentLocationBarAction.Refresh -> {
+              if (locationPermissionGranted) viewModel.refreshLocation()
+              else permissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+              )
+            }
+          }
         },
-        onClick = openCafeSelector,
       )
 
       Box(
@@ -330,7 +333,7 @@ internal fun CameraCaptureScreen(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
             Text(
-              text = "✓ Saved to ${recentSaved.venue} (${recentSaved.photoPaths.size})",
+              text = stringResource(Res.string.saved_to_venue_count, recentSaved.venue, recentSaved.photoPaths.size),
               style = MaterialTheme.typography.bodySmall,
               fontWeight = FontWeight.SemiBold,
               maxLines = 1,
@@ -403,7 +406,7 @@ internal fun CameraCaptureScreen(
 
       if (state.showLocationHint) {
         Text(
-          text = "Saved your photo. Turn on location to add where you are.",
+          text = stringResource(Res.string.location_hint_saved_photo),
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -414,20 +417,26 @@ internal fun CameraCaptureScreen(
   if (cafeSheetOpen) {
     ModalBottomSheet(onDismissRequest = { cafeSheetOpen = false }) {
       NearbyCafeSheet(
-        position = state.currentPosition,
-        locationUnavailable = state.locationUnavailable,
-        candidates = state.nearbyCafes,
-        searching = state.searchingCafes,
-        error = state.cafeSearchError,
-        manualName = manualCafeName,
-        onManualNameChange = { manualCafeName = it },
-        onChoose = { cafe ->
-          viewModel.selectCafe(cafe)
-          cafeSheetOpen = false
-        },
-        onChooseManual = {
-          viewModel.selectManualCafe(manualCafeName)
-          cafeSheetOpen = false
+        state = NearbyCafeSheetState(
+          position = state.currentPosition,
+          locationUnavailable = state.locationUnavailable,
+          candidates = state.nearbyCafes,
+          searching = state.searchingCafes,
+          error = state.cafeSearchError,
+          manualName = manualCafeName,
+        ),
+        onAction = { action ->
+          when (action) {
+            is NearbyCafeSheetAction.ChangeManualName -> manualCafeName = action.name
+            is NearbyCafeSheetAction.ChooseCafe -> {
+              viewModel.selectCafe(action.cafe)
+              cafeSheetOpen = false
+            }
+            NearbyCafeSheetAction.ChooseManual -> {
+              viewModel.selectManualCafe(manualCafeName)
+              cafeSheetOpen = false
+            }
+          }
         },
       )
     }
@@ -510,36 +519,48 @@ internal fun VisitLogScreen(
             Text(stringResource(Res.string.action_back_to_camera), style = MaterialTheme.typography.labelLarge)
           }
           Text(
-            text = if (showingArchive) "Archived visits" else "Visit log",
+            text = stringResource(if (showingArchive) Res.string.archived_visits_title else Res.string.visit_log_title),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
           )
         }
         TextButton(onClick = { showingArchive = !showingArchive }) {
-          Text(if (showingArchive) "Log (${state.entries.size})" else "Archive (${state.archivedEntries.size})")
+          Text(
+            if (showingArchive) {
+              stringResource(Res.string.action_log_count, state.entries.size)
+            } else {
+              stringResource(Res.string.action_archive_count, state.archivedEntries.size)
+            },
+          )
         }
       }
 
       Spacer(Modifier.height(8.dp))
       CurrentLocationBar(
-        position = state.currentPosition,
-        address = state.currentAddress,
-        selectedCafe = state.selectedCafe,
-        hasPermission = locationPermissionGranted,
-        locationUnavailable = state.locationUnavailable,
-        refreshing = state.refreshingLocation,
-        refreshMessage = state.refreshMessage,
-        onRefresh = {
-          if (locationPermissionGranted) viewModel.refreshLocation()
-          else permissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-          )
-        },
-        onClick = {
-          if (locationPermissionGranted) cafeSheetOpen = true
-          else permissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-          )
+        state = CurrentLocationBarState(
+          position = state.currentPosition,
+          address = state.currentAddress,
+          selectedCafe = state.selectedCafe,
+          hasPermission = locationPermissionGranted,
+          locationUnavailable = state.locationUnavailable,
+          refreshing = state.refreshingLocation,
+          refreshMessage = state.refreshMessage,
+        ),
+        onAction = { action ->
+          when (action) {
+            CurrentLocationBarAction.OpenPicker -> {
+              if (locationPermissionGranted) cafeSheetOpen = true
+              else permissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+              )
+            }
+            CurrentLocationBarAction.Refresh -> {
+              if (locationPermissionGranted) viewModel.refreshLocation()
+              else permissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+              )
+            }
+          }
         },
       )
 
@@ -594,29 +615,35 @@ internal fun VisitLogScreen(
               entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
             }
             SharedVisitEntryCard(
-              entry = entry,
-              archived = showingArchive,
-              selected = entry.id == selectedEntryId,
-              tagging = entry.id in state.taggingIds,
-              taggingLabel = stringResource(Res.string.identifying_dishes_on_device),
-              tagDraft = manualTagDrafts[entry.id].orEmpty(),
-              photoPathsOverride = photos,
-              onOpenDetails = { onSelectEntry(entry.id) },
-              onTagDraft = { draft -> manualTagDrafts = manualTagDrafts + (entry.id to draft) },
-              onTagClick = { tag -> searchQuery = tag },
-              onAddTag = {
-                val tag = manualTagDrafts[entry.id].orEmpty().trim()
-                if (tag.isNotEmpty()) {
-                  viewModel.addManualTag(entry.id, tag)
-                  manualTagDrafts = manualTagDrafts - entry.id
+              state = VisitEntryCardState(
+                entry = entry,
+                archived = showingArchive,
+                selected = entry.id == selectedEntryId,
+                tagging = entry.id in state.taggingIds,
+                taggingLabel = stringResource(Res.string.identifying_dishes_on_device),
+                tagDraft = manualTagDrafts[entry.id].orEmpty(),
+                photoPathsOverride = photos,
+              ),
+              onAction = { action ->
+                when (action) {
+                  VisitEntryCardAction.OpenDetails -> onSelectEntry(entry.id)
+                  is VisitEntryCardAction.ChangeTagDraft -> manualTagDrafts = manualTagDrafts + (entry.id to action.draft)
+                  is VisitEntryCardAction.ClickTag -> searchQuery = action.tag
+                  VisitEntryCardAction.AddTag -> {
+                    val tag = manualTagDrafts[entry.id].orEmpty().trim()
+                    if (tag.isNotEmpty()) {
+                      viewModel.addManualTag(entry.id, tag)
+                      manualTagDrafts = manualTagDrafts - entry.id
+                    }
+                  }
+                  VisitEntryCardAction.AddPhotos -> {
+                    photoPickerEntryId = entry.id
+                    photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                  }
+                  VisitEntryCardAction.Archive -> viewModel.archiveEntry(entry.id)
+                  VisitEntryCardAction.Restore -> viewModel.restoreEntry(entry.id)
                 }
               },
-              onAddPhotos = {
-                photoPickerEntryId = entry.id
-                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-              },
-              onArchive = { viewModel.archiveEntry(entry.id) },
-              onRestore = { viewModel.restoreEntry(entry.id) },
               photoContent = { path, modifier -> AsyncLocalPhoto(path = path, modifier = modifier) },
             )
           }
@@ -628,20 +655,26 @@ internal fun VisitLogScreen(
   if (cafeSheetOpen) {
     ModalBottomSheet(onDismissRequest = { cafeSheetOpen = false }) {
       NearbyCafeSheet(
-        position = state.currentPosition,
-        locationUnavailable = state.locationUnavailable,
-        candidates = state.nearbyCafes,
-        searching = state.searchingCafes,
-        error = state.cafeSearchError,
-        manualName = manualCafeName,
-        onManualNameChange = { manualCafeName = it },
-        onChoose = { cafe ->
-          viewModel.selectCafe(cafe)
-          cafeSheetOpen = false
-        },
-        onChooseManual = {
-          viewModel.selectManualCafe(manualCafeName)
-          cafeSheetOpen = false
+        state = NearbyCafeSheetState(
+          position = state.currentPosition,
+          locationUnavailable = state.locationUnavailable,
+          candidates = state.nearbyCafes,
+          searching = state.searchingCafes,
+          error = state.cafeSearchError,
+          manualName = manualCafeName,
+        ),
+        onAction = { action ->
+          when (action) {
+            is NearbyCafeSheetAction.ChangeManualName -> manualCafeName = action.name
+            is NearbyCafeSheetAction.ChooseCafe -> {
+              viewModel.selectCafe(action.cafe)
+              cafeSheetOpen = false
+            }
+            NearbyCafeSheetAction.ChooseManual -> {
+              viewModel.selectManualCafe(manualCafeName)
+              cafeSheetOpen = false
+            }
+          }
         },
       )
     }

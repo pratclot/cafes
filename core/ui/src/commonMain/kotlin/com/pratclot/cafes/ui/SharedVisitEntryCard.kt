@@ -33,6 +33,7 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -61,34 +62,47 @@ import com.pratclot.cafes.core.ui.generated.resources.action_archive_visit
 import com.pratclot.cafes.core.ui.generated.resources.action_details
 import com.pratclot.cafes.core.ui.generated.resources.action_restore
 import com.pratclot.cafes.core.ui.generated.resources.action_restore_visit
+import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes
 import com.pratclot.cafes.core.ui.generated.resources.visit_tag_input_label
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
+@Immutable
+data class VisitEntryCardState(
+  val entry: CafeEntry,
+  val archived: Boolean,
+  val selected: Boolean = false,
+  val swipeEnabled: Boolean = true,
+  val showArchiveButton: Boolean = false,
+  val tagging: Boolean,
+  val taggingLabel: String? = null,
+  val tagDraft: String,
+  val photoPathsOverride: List<String>? = null,
+)
+
+sealed interface VisitEntryCardAction {
+  data object OpenDetails : VisitEntryCardAction
+  data class ChangeTagDraft(val draft: String) : VisitEntryCardAction
+  data class ClickTag(val tag: String) : VisitEntryCardAction
+  data object AddTag : VisitEntryCardAction
+  data object AddPhotos : VisitEntryCardAction
+  data object Archive : VisitEntryCardAction
+  data object Restore : VisitEntryCardAction
+}
+
 @Composable
 fun SharedVisitEntryCard(
-  entry: CafeEntry,
-  archived: Boolean,
-  selected: Boolean = false,
-  swipeEnabled: Boolean = true,
-  showArchiveButton: Boolean = false,
-  tagging: Boolean,
-  taggingLabel: String = "Identifying dishes…",
-  tagDraft: String,
-  photoPathsOverride: List<String>? = null,
-  onOpenDetails: () -> Unit,
-  onTagDraft: (String) -> Unit,
-  onTagClick: (String) -> Unit,
-  onAddTag: () -> Unit,
-  onAddPhotos: () -> Unit,
-  onArchive: () -> Unit,
-  onRestore: () -> Unit,
+  state: VisitEntryCardState,
+  onAction: (VisitEntryCardAction) -> Unit,
+  modifier: Modifier = Modifier,
   photoContent: @Composable (path: String, modifier: Modifier) -> Unit,
 ) {
-  val photos = remember(entry.photoPath, entry.photoPaths, photoPathsOverride) {
-    (photoPathsOverride ?: entry.photoPaths).ifEmpty { listOf(entry.photoPath) }
+  val entry = state.entry
+  val archived = state.archived
+  val photos = remember(entry.photoPath, entry.photoPaths, state.photoPathsOverride) {
+    (state.photoPathsOverride ?: entry.photoPaths).ifEmpty { listOf(entry.photoPath) }
   }
   var photoIndex by remember(entry.id) { mutableIntStateOf(0) }
   LaunchedEffect(entry.id, photos) {
@@ -111,7 +125,7 @@ fun SharedVisitEntryCard(
   val actionLabel = stringResource(if (archived) Res.string.action_restore_visit else Res.string.action_archive_visit)
 
   BoxWithConstraints(
-    Modifier
+    modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(22.dp))
       .semantics {
@@ -119,7 +133,7 @@ fun SharedVisitEntryCard(
           CustomAccessibilityAction(
             label = actionLabel,
             action = {
-              if (archived) onRestore() else onArchive()
+              onAction(if (archived) VisitEntryCardAction.Restore else VisitEntryCardAction.Archive)
               true
             },
           ),
@@ -137,7 +151,7 @@ fun SharedVisitEntryCard(
         .fillMaxWidth()
         .offset { IntOffset(currentOffset.roundToInt(), 0) }
         .then(
-          if (swipeEnabled) {
+          if (state.swipeEnabled) {
             Modifier.pointerInput(entry.id, archived, widthPx) {
               detectHorizontalDragGestures(
                 onHorizontalDrag = { change, dragAmount ->
@@ -151,7 +165,7 @@ fun SharedVisitEntryCard(
                     dragging = false
                     if (dragOffset < -widthPx * 0.38f) {
                       swipeOffset.animateTo(-widthPx, tween(190))
-                      if (archived) onRestore() else onArchive()
+                      onAction(if (archived) VisitEntryCardAction.Restore else VisitEntryCardAction.Archive)
                     } else {
                       swipeOffset.animateTo(0f, tween(220))
                     }
@@ -174,7 +188,7 @@ fun SharedVisitEntryCard(
         ),
       shape = RoundedCornerShape(22.dp),
       colors = CardDefaults.cardColors(
-        containerColor = if (selected) {
+        containerColor = if (state.selected) {
           MaterialTheme.colorScheme.secondaryContainer
         } else {
           MaterialTheme.colorScheme.surfaceContainerLow
@@ -183,7 +197,7 @@ fun SharedVisitEntryCard(
     ) {
       Box {
         Column {
-          Box(Modifier.fillMaxWidth().height(215.dp).clickable(onClick = onOpenDetails)) {
+          Box(Modifier.fillMaxWidth().height(215.dp).clickable { onAction(VisitEntryCardAction.OpenDetails) }) {
             Crossfade(
               targetState = photos[photoIndex.coerceIn(0, photos.lastIndex)],
               animationSpec = tween(700),
@@ -192,7 +206,7 @@ fun SharedVisitEntryCard(
               photoContent(path, Modifier.fillMaxSize())
             }
             FilledTonalButton(
-              onClick = onAddPhotos,
+              onClick = { onAction(VisitEntryCardAction.AddPhotos) },
               modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
               contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             ) {
@@ -208,14 +222,14 @@ fun SharedVisitEntryCard(
                 fontWeight = FontWeight.SemiBold,
               )
               TextButton(
-                onClick = onOpenDetails,
+                onClick = { onAction(VisitEntryCardAction.OpenDetails) },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
               ) {
                 Text(stringResource(Res.string.action_details))
               }
-              if (showArchiveButton) {
+              if (state.showArchiveButton) {
                 TextButton(
-                  onClick = if (archived) onRestore else onArchive,
+                  onClick = { onAction(if (archived) VisitEntryCardAction.Restore else VisitEntryCardAction.Archive) },
                   contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
                   Text(stringResource(if (archived) Res.string.action_restore else Res.string.action_archive))
@@ -235,13 +249,13 @@ fun SharedVisitEntryCard(
               style = MaterialTheme.typography.labelMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (tagging) {
+            if (state.tagging) {
               Spacer(Modifier.height(8.dp))
               Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(7.dp))
                 Text(
-                  taggingLabel,
+                  state.taggingLabel ?: stringResource(Res.string.identifying_dishes),
                   style = MaterialTheme.typography.labelSmall,
                   color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -257,21 +271,24 @@ fun SharedVisitEntryCard(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
               ) {
                 tags.forEach { tag ->
-                  SuggestionChip(onClick = { onTagClick(tag) }, label = { Text(tag) })
+                  SuggestionChip(onClick = { onAction(VisitEntryCardAction.ClickTag(tag)) }, label = { Text(tag) })
                 }
               }
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
               OutlinedTextField(
-                value = tagDraft,
-                onValueChange = onTagDraft,
+                value = state.tagDraft,
+                onValueChange = { onAction(VisitEntryCardAction.ChangeTagDraft(it)) },
                 modifier = Modifier.weight(1f),
                 label = { Text(stringResource(Res.string.visit_tag_input_label)) },
                 singleLine = true,
               )
               Spacer(Modifier.width(8.dp))
-              TextButton(onClick = onAddTag, enabled = tagDraft.isNotBlank()) { Text(stringResource(Res.string.action_add)) }
+              TextButton(
+                onClick = { onAction(VisitEntryCardAction.AddTag) },
+                enabled = state.tagDraft.isNotBlank(),
+              ) { Text(stringResource(Res.string.action_add)) }
             }
           }
         }

@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,11 +41,21 @@ import com.pratclot.cafes.core.ui.generated.resources.Res
 import com.pratclot.cafes.core.ui.generated.resources.action_change
 import com.pratclot.cafes.core.ui.generated.resources.action_use_this_cafe
 import com.pratclot.cafes.core.ui.generated.resources.cafe_search_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.location_detecting
+import com.pratclot.cafes.core.ui.generated.resources.location_distance_meters
 import com.pratclot.cafes.core.ui.generated.resources.location_enter_cafe_name
 import com.pratclot.cafes.core.ui.generated.resources.location_looking_nearby
+import com.pratclot.cafes.core.ui.generated.resources.location_nearby_accuracy
+import com.pratclot.cafes.core.ui.generated.resources.location_nearby_needs_fix
+import com.pratclot.cafes.core.ui.generated.resources.location_nearby_sorted
 import com.pratclot.cafes.core.ui.generated.resources.location_no_fresh
+import com.pratclot.cafes.core.ui.generated.resources.location_no_mapped_cafes
+import com.pratclot.cafes.core.ui.generated.resources.location_off_tap_change
+import com.pratclot.cafes.core.ui.generated.resources.location_osm_attribution
+import com.pratclot.cafes.core.ui.generated.resources.location_osm_place
 import com.pratclot.cafes.core.ui.generated.resources.location_refresh_cd
 import com.pratclot.cafes.core.ui.generated.resources.location_refresh_failed
+import com.pratclot.cafes.core.ui.generated.resources.location_unavailable
 import com.pratclot.cafes.core.ui.generated.resources.location_which_cafe
 import com.pratclot.cafes.data.CafeSearchError
 import com.pratclot.cafes.data.RefreshStatusMessage
@@ -61,20 +72,30 @@ internal fun CafeSearchError.asText(): String = when (this) {
   CafeSearchError.UNAVAILABLE -> stringResource(Res.string.cafe_search_unavailable)
 }
 
+@Immutable
+internal data class CurrentLocationBarState(
+  val position: UserPosition?,
+  val address: String?,
+  val selectedCafe: CafeCandidate?,
+  val hasPermission: Boolean,
+  val locationUnavailable: Boolean,
+  val refreshing: Boolean,
+  val refreshMessage: RefreshStatusMessage?,
+)
+
+internal sealed interface CurrentLocationBarAction {
+  data object OpenPicker : CurrentLocationBarAction
+  data object Refresh : CurrentLocationBarAction
+}
+
 @Composable
 internal fun CurrentLocationBar(
-  position: UserPosition?,
-  address: String?,
-  selectedCafe: CafeCandidate?,
-  hasPermission: Boolean,
-  locationUnavailable: Boolean,
-  refreshing: Boolean,
-  refreshMessage: RefreshStatusMessage?,
-  onClick: () -> Unit,
-  onRefresh: () -> Unit,
+  state: CurrentLocationBarState,
+  onAction: (CurrentLocationBarAction) -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth(),
+    modifier = modifier.fillMaxWidth(),
     shape = RoundedCornerShape(12.dp),
     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
   ) {
@@ -86,18 +107,20 @@ internal fun CurrentLocationBar(
       horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       Text("📍", style = MaterialTheme.typography.bodyMedium)
-      val refreshText = refreshMessage?.asText()
+      val refreshText = state.refreshMessage?.asText()
+      val selectedCafe = state.selectedCafe
+      val position = state.position
       val displayLine = when {
         refreshText != null -> refreshText
-        !hasPermission -> "Location off · tap Change"
+        !state.hasPermission -> stringResource(Res.string.location_off_tap_change)
         selectedCafe != null -> buildString {
           append(selectedCafe.name)
-          val addr = selectedCafe.address ?: address
+          val addr = selectedCafe.address ?: state.address
           if (!addr.isNullOrBlank()) append(" · $addr")
         }
-        position == null && locationUnavailable -> "Location unavailable"
-        position == null -> "Detecting location…"
-        else -> address ?: "Nearby (±${position.accuracyMeters.toInt()}m)"
+        position == null && state.locationUnavailable -> stringResource(Res.string.location_unavailable)
+        position == null -> stringResource(Res.string.location_detecting)
+        else -> state.address ?: stringResource(Res.string.location_nearby_accuracy, position.accuracyMeters.toInt())
       }
       Text(
         text = displayLine,
@@ -108,42 +131,53 @@ internal fun CurrentLocationBar(
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier
           .weight(1f)
-          .clickable(onClick = onClick),
+          .clickable { onAction(CurrentLocationBarAction.OpenPicker) },
       )
       TextButton(
-        onClick = onClick,
+        onClick = { onAction(CurrentLocationBarAction.OpenPicker) },
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
       ) {
         Text(stringResource(Res.string.action_change), style = MaterialTheme.typography.labelMedium)
       }
       val refreshDescription = stringResource(Res.string.location_refresh_cd)
       TextButton(
-        onClick = onRefresh,
-        enabled = !refreshing,
+        onClick = { onAction(CurrentLocationBarAction.Refresh) },
+        enabled = !state.refreshing,
         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
         modifier = Modifier.semantics { contentDescription = refreshDescription },
       ) {
-        Text(if (refreshing) "…" else "↻", style = MaterialTheme.typography.labelLarge)
+        Text(if (state.refreshing) "…" else "↻", style = MaterialTheme.typography.labelLarge)
       }
     }
   }
 }
 
+@Immutable
+internal data class NearbyCafeSheetState(
+  val position: UserPosition?,
+  val locationUnavailable: Boolean,
+  val candidates: List<CafeCandidate>,
+  val searching: Boolean,
+  val error: CafeSearchError?,
+  val manualName: String,
+)
+
+internal sealed interface NearbyCafeSheetAction {
+  data class ChangeManualName(val name: String) : NearbyCafeSheetAction
+  data class ChooseCafe(val cafe: CafeCandidate) : NearbyCafeSheetAction
+  data object ChooseManual : NearbyCafeSheetAction
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun NearbyCafeSheet(
-  position: UserPosition?,
-  locationUnavailable: Boolean,
-  candidates: List<CafeCandidate>,
-  searching: Boolean,
-  error: CafeSearchError?,
-  manualName: String,
-  onManualNameChange: (String) -> Unit,
-  onChoose: (CafeCandidate) -> Unit,
-  onChooseManual: () -> Unit,
+  state: NearbyCafeSheetState,
+  onAction: (NearbyCafeSheetAction) -> Unit,
+  modifier: Modifier = Modifier,
 ) {
+  val position = state.position
   Column(
-    Modifier
+    modifier
       .fillMaxWidth()
       .imePadding()
       .padding(horizontal = 22.dp)
@@ -152,13 +186,15 @@ internal fun NearbyCafeSheet(
     Text(stringResource(Res.string.location_which_cafe), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(5.dp))
     Text(
-      if (position == null) "Nearby lookup needs a location fix." else "Nearby matches are sorted by distance.",
+      stringResource(
+        if (position == null) Res.string.location_nearby_needs_fix else Res.string.location_nearby_sorted,
+      ),
       style = MaterialTheme.typography.bodyMedium,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(14.dp))
-    val errorText = error?.asText()
-    if (searching || (position == null && !locationUnavailable)) {
+    val errorText = state.error?.asText()
+    if (state.searching || (position == null && !state.locationUnavailable)) {
       Row(
         Modifier.fillMaxWidth().padding(vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -168,20 +204,22 @@ internal fun NearbyCafeSheet(
         Spacer(Modifier.width(12.dp))
         Text(stringResource(Res.string.location_looking_nearby))
       }
-    } else if (candidates.isNotEmpty()) {
+    } else if (state.candidates.isNotEmpty()) {
       LazyColumn(Modifier.heightIn(max = 260.dp)) {
         items(
-          items = candidates.take(12),
+          items = state.candidates.take(12),
           key = { it.id },
           contentType = { "nearby_cafe" },
         ) { cafe ->
           ListItem(
-            modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { onChoose(cafe) },
+            modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { onAction(NearbyCafeSheetAction.ChooseCafe(cafe)) },
             headlineContent = { Text(cafe.name, fontWeight = FontWeight.Medium) },
-            supportingContent = { Text(cafe.address ?: "OpenStreetMap place") },
+            supportingContent = { Text(cafe.address ?: stringResource(Res.string.location_osm_place)) },
             trailingContent = {
               if (position != null) {
-                cafe.distanceFrom(position)?.let { Text("${it.toInt()} m", style = MaterialTheme.typography.labelMedium) }
+                cafe.distanceFrom(position)?.let {
+                  Text(stringResource(Res.string.location_distance_meters, it.toInt()), style = MaterialTheme.typography.labelMedium)
+                }
               }
             },
           )
@@ -189,29 +227,33 @@ internal fun NearbyCafeSheet(
       }
     } else {
       Text(
-        errorText ?: "No mapped cafes found nearby. Enter the name instead.",
+        errorText ?: stringResource(Res.string.location_no_mapped_cafes),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
-    if (!errorText.isNullOrBlank() && candidates.isNotEmpty()) {
+    if (!errorText.isNullOrBlank() && state.candidates.isNotEmpty()) {
       Text(errorText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     }
     Spacer(Modifier.height(12.dp))
     OutlinedTextField(
-      value = manualName,
-      onValueChange = onManualNameChange,
+      value = state.manualName,
+      onValueChange = { onAction(NearbyCafeSheetAction.ChangeManualName(it)) },
       modifier = Modifier.fillMaxWidth(),
       label = { Text(stringResource(Res.string.location_enter_cafe_name)) },
       singleLine = true,
     )
     Spacer(Modifier.height(8.dp))
-    Button(onClick = onChooseManual, enabled = manualName.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+    Button(
+      onClick = { onAction(NearbyCafeSheetAction.ChooseManual) },
+      enabled = state.manualName.isNotBlank(),
+      modifier = Modifier.fillMaxWidth(),
+    ) {
       Text(stringResource(Res.string.action_use_this_cafe))
     }
     Spacer(Modifier.height(8.dp))
     Text(
-      "Cafe suggestions © OpenStreetMap contributors",
+      stringResource(Res.string.location_osm_attribution),
       style = MaterialTheme.typography.labelSmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

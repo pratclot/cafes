@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,30 +41,42 @@ import com.pratclot.cafes.core.ui.generated.resources.location_pin_label
 import com.pratclot.cafes.core.ui.generated.resources.location_refresh_cd
 import org.jetbrains.compose.resources.stringResource
 
+@Immutable
+data class CompactLocationBarState(
+  val selectedCafe: CafeCandidate?,
+  val manualCafe: String,
+  val locationMessage: String,
+  val loadingLocation: Boolean,
+  val cafes: List<CafeCandidate>,
+  val editing: Boolean,
+  val showAddPhotosAction: Boolean = false,
+)
+
+sealed interface CompactLocationBarAction {
+  data object ToggleEditing : CompactLocationBarAction
+  data object Refresh : CompactLocationBarAction
+  data class SelectCafe(val cafe: CafeCandidate) : CompactLocationBarAction
+  data class ChangeManualCafe(val name: String) : CompactLocationBarAction
+  data object ApplyManualCafe : CompactLocationBarAction
+  data object AddPhotos : CompactLocationBarAction
+}
+
 @Composable
 fun SharedCompactLocationBar(
-  selectedCafe: CafeCandidate?,
-  manualCafe: String,
-  locationMessage: String,
-  loadingLocation: Boolean,
-  cafes: List<CafeCandidate>,
-  editing: Boolean,
-  showAddPhotosAction: Boolean,
-  onToggleEditing: () -> Unit,
-  onRefresh: () -> Unit,
-  onSelectCafe: (CafeCandidate) -> Unit,
-  onManualCafeChange: (String) -> Unit,
-  onApplyManualCafe: () -> Unit,
-  onAddPhotos: () -> Unit,
+  state: CompactLocationBarState,
+  onAction: (CompactLocationBarAction) -> Unit,
+  modifier: Modifier = Modifier,
 ) {
+  val selectedCafe = state.selectedCafe
+  val manualCafe = state.manualCafe
   val activeLabel = when {
     selectedCafe != null -> "${selectedCafe.name}${selectedCafe.address?.takeIf(String::isNotBlank)?.let { " · $it" } ?: ""}"
     manualCafe.isNotBlank() -> manualCafe.trim()
-    else -> locationMessage
+    else -> state.locationMessage
   }
-  Column(Modifier.fillMaxWidth()) {
+  Column(modifier.fillMaxWidth()) {
     Surface(
-      Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onToggleEditing),
+      Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onAction(CompactLocationBarAction.ToggleEditing) },
       shape = RoundedCornerShape(12.dp),
       color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
@@ -82,23 +95,23 @@ fun SharedCompactLocationBar(
           modifier = Modifier.weight(1f),
         )
         TextButton(
-          onClick = onToggleEditing,
+          onClick = { onAction(CompactLocationBarAction.ToggleEditing) },
           contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         ) {
-          Text(stringResource(if (editing) Res.string.action_done else Res.string.action_change))
+          Text(stringResource(if (state.editing) Res.string.action_done else Res.string.action_change))
         }
         val refreshDescription = stringResource(Res.string.location_refresh_cd)
         TextButton(
-          onClick = onRefresh,
-          enabled = !loadingLocation,
+          onClick = { onAction(CompactLocationBarAction.Refresh) },
+          enabled = !state.loadingLocation,
           contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
           modifier = Modifier.semantics { contentDescription = refreshDescription },
         ) {
-          Text(if (loadingLocation) "…" else "↻")
+          Text(if (state.loadingLocation) "…" else "↻")
         }
-        if (showAddPhotosAction) {
+        if (state.showAddPhotosAction) {
           Button(
-            onClick = onAddPhotos,
+            onClick = { onAction(CompactLocationBarAction.AddPhotos) },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
           ) {
             Text(stringResource(Res.string.action_add_photos_plain))
@@ -106,22 +119,22 @@ fun SharedCompactLocationBar(
         }
       }
     }
-    if (editing) {
+    if (state.editing) {
       Card(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Column(
           Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(12.dp),
           verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
           Text(
-            locationMessage,
+            state.locationMessage,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
-          if (cafes.isNotEmpty()) {
+          if (state.cafes.isNotEmpty()) {
             Text(stringResource(Res.string.location_nearby_cafes), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            cafes.take(6).forEach { cafe ->
+            state.cafes.take(6).forEach { cafe ->
               TextButton(
-                onClick = { onSelectCafe(cafe) },
+                onClick = { onAction(CompactLocationBarAction.SelectCafe(cafe)) },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
               ) {
                 Text("${if (selectedCafe?.id == cafe.id) "✓ " else ""}${cafe.name}${cafe.address?.let { " · $it" } ?: ""}")
@@ -131,13 +144,13 @@ fun SharedCompactLocationBar(
           Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
               value = manualCafe,
-              onValueChange = onManualCafeChange,
+              onValueChange = { onAction(CompactLocationBarAction.ChangeManualCafe(it)) },
               label = { Text(stringResource(Res.string.location_custom_cafe_label)) },
               singleLine = true,
               modifier = Modifier.weight(1f),
             )
             if (manualCafe.isNotBlank()) {
-              OutlinedButton(onClick = onApplyManualCafe) { Text(stringResource(Res.string.action_use)) }
+              OutlinedButton(onClick = { onAction(CompactLocationBarAction.ApplyManualCafe) }) { Text(stringResource(Res.string.action_use)) }
             }
           }
         }

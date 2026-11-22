@@ -33,6 +33,7 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,21 +51,45 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pratclot.cafes.core.model.CafeEntry
 import com.pratclot.cafes.core.ui.generated.resources.Res
 import com.pratclot.cafes.core.ui.generated.resources.action_add
 import com.pratclot.cafes.core.ui.generated.resources.action_add_photos
 import com.pratclot.cafes.core.ui.generated.resources.action_archive
 import com.pratclot.cafes.core.ui.generated.resources.action_back
 import com.pratclot.cafes.core.ui.generated.resources.action_restore
+import com.pratclot.cafes.core.ui.generated.resources.detail_placeholder_subtitle
 import com.pratclot.cafes.core.ui.generated.resources.detail_placeholder_title
 import com.pratclot.cafes.core.ui.generated.resources.detail_visit_not_found
 import com.pratclot.cafes.core.ui.generated.resources.identifying_dishes_on_device
+import com.pratclot.cafes.core.ui.generated.resources.photo_index
+import com.pratclot.cafes.core.ui.generated.resources.photo_index_selected
 import com.pratclot.cafes.core.ui.generated.resources.visit_tag_input_label
+import com.pratclot.cafes.ui.ClassificationSectionState
 import com.pratclot.cafes.ui.SharedClassificationSection
 import com.pratclot.cafes.ui.formatTimestamp
 import java.io.File
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+
+@Immutable
+internal data class VisitDetailContentState(
+  val entry: CafeEntry,
+  val isArchived: Boolean,
+  val showBackButton: Boolean,
+  val tagging: Boolean,
+  val modelVersion: String,
+  val tagDraft: String,
+)
+
+internal sealed interface VisitDetailAction {
+  data object Back : VisitDetailAction
+  data object ToggleArchive : VisitDetailAction
+  data object AddPhotos : VisitDetailAction
+  data class ChangeTagDraft(val draft: String) : VisitDetailAction
+  data object AddManualTag : VisitDetailAction
+  data object RetryClassification : VisitDetailAction
+}
 
 @Composable
 internal fun VisitDetailScreen(
@@ -114,144 +139,187 @@ internal fun VisitDetailScreen(
       return@Scaffold
     }
 
-    val photos = remember(entry.photoPath, entry.photoPaths) {
-      entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
-    }
-    var photoIndex by remember(entry.id) { mutableIntStateOf(0) }
-
-    Column(
+    VisitDetailContent(
+      state = VisitDetailContentState(
+        entry = entry,
+        isArchived = isArchived,
+        showBackButton = showBackButton,
+        tagging = tagging,
+        modelVersion = entry.taggingModelVersion ?: state.modelVersion,
+        tagDraft = tagDraft,
+      ),
+      onAction = { action ->
+        when (action) {
+          VisitDetailAction.Back -> onBack()
+          VisitDetailAction.ToggleArchive -> {
+            if (isArchived) viewModel.restoreEntry(entry.id) else viewModel.archiveEntry(entry.id)
+          }
+          VisitDetailAction.AddPhotos -> {
+            photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+          }
+          is VisitDetailAction.ChangeTagDraft -> tagDraft = action.draft
+          VisitDetailAction.AddManualTag -> {
+            viewModel.addManualTag(entry.id, tagDraft)
+            tagDraft = ""
+          }
+          VisitDetailAction.RetryClassification -> viewModel.retryClassification(entry.id)
+        }
+      },
       modifier = Modifier
         .fillMaxSize()
         .padding(innerPadding)
-        .consumeWindowInsets(innerPadding)
-        .imePadding()
-        .verticalScroll(rememberScrollState())
-        .padding(horizontal = 18.dp, vertical = 14.dp),
-      verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        if (showBackButton) {
-          OutlinedButton(
-            onClick = onBack,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-          ) {
-            Text(stringResource(Res.string.action_back))
-          }
-        }
-        Text(
-          text = entry.venue,
-          style = MaterialTheme.typography.titleLarge,
-          fontWeight = FontWeight.Bold,
-          modifier = Modifier.weight(1f),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-        TextButton(
-          onClick = {
-            if (isArchived) viewModel.restoreEntry(entry.id) else viewModel.archiveEntry(entry.id)
-          },
-        ) {
-          Text(stringResource(if (isArchived) Res.string.action_restore else Res.string.action_archive))
-        }
-      }
+        .consumeWindowInsets(innerPadding),
+    )
+  }
+}
 
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(260.dp)
-          .clip(RoundedCornerShape(18.dp))
-          .background(Color(0xFF1C1815)),
-      ) {
-        val currentPath = photos[photoIndex.coerceIn(0, photos.lastIndex)]
-        AsyncLocalPhoto(path = currentPath, modifier = Modifier.fillMaxSize())
-        FilledTonalButton(
-          onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-          modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+@Composable
+private fun VisitDetailContent(
+  state: VisitDetailContentState,
+  onAction: (VisitDetailAction) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val entry = state.entry
+  val photos = remember(entry.photoPath, entry.photoPaths) {
+    entry.photoPaths.filter { File(it).exists() }.ifEmpty { listOf(entry.photoPath) }
+  }
+  var photoIndex by remember(entry.id) { mutableIntStateOf(0) }
+
+  Column(
+    modifier = modifier
+      .imePadding()
+      .verticalScroll(rememberScrollState())
+      .padding(horizontal = 18.dp, vertical = 14.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      if (state.showBackButton) {
+        OutlinedButton(
+          onClick = { onAction(VisitDetailAction.Back) },
           contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         ) {
-          Text(stringResource(Res.string.action_add_photos))
+          Text(stringResource(Res.string.action_back))
         }
-      }
-
-      if (photos.size > 1) {
-        Row(
-          modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          photos.forEachIndexed { idx, _ ->
-            OutlinedButton(
-              onClick = { photoIndex = idx },
-              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-            ) {
-              Text(if (idx == photoIndex) "• Photo ${idx + 1}" else "Photo ${idx + 1}")
-            }
-          }
-        }
-      }
-
-      if (entry.address.isNotBlank()) {
-        Text(entry.address, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
       Text(
-        formatTimestamp(entry.visitedAt),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        text = entry.venue,
+        style = MaterialTheme.typography.titleLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.weight(1f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
-
-      if (tagging) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-          Spacer(Modifier.width(8.dp))
-          Text(stringResource(Res.string.identifying_dishes_on_device), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+      TextButton(
+        onClick = { onAction(VisitDetailAction.ToggleArchive) },
+      ) {
+        Text(stringResource(if (state.isArchived) Res.string.action_restore else Res.string.action_archive))
       }
+    }
 
-      val tags = remember(entry.autoTags, entry.manualTags) {
-        (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
+    Box(
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(260.dp)
+        .clip(RoundedCornerShape(18.dp))
+        .background(Color(0xFF1C1815)),
+    ) {
+      val currentPath = photos[photoIndex.coerceIn(0, photos.lastIndex)]
+      AsyncLocalPhoto(path = currentPath, modifier = Modifier.fillMaxSize())
+      FilledTonalButton(
+        onClick = { onAction(VisitDetailAction.AddPhotos) },
+        modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+      ) {
+        Text(stringResource(Res.string.action_add_photos))
       }
-      if (tags.isNotEmpty()) {
-        Row(
-          modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          tags.forEach { tag ->
-            SuggestionChip(onClick = {}, label = { Text(tag) })
+    }
+
+    if (photos.size > 1) {
+      Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        photos.forEachIndexed { idx, _ ->
+          OutlinedButton(
+            onClick = { photoIndex = idx },
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+          ) {
+            Text(
+              stringResource(
+                if (idx == photoIndex) Res.string.photo_index_selected else Res.string.photo_index,
+                idx + 1,
+              ),
+            )
           }
         }
       }
+    }
 
+    if (entry.address.isNotBlank()) {
+      Text(entry.address, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Text(
+      formatTimestamp(entry.visitedAt),
+      style = MaterialTheme.typography.labelMedium,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (state.tagging) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-          value = tagDraft,
-          onValueChange = { tagDraft = it },
-          modifier = Modifier.weight(1f),
-          label = { Text(stringResource(Res.string.visit_tag_input_label)) },
-          singleLine = true,
-        )
+        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(8.dp))
-        TextButton(
-          onClick = {
-            viewModel.addManualTag(entry.id, tagDraft)
-            tagDraft = ""
-          },
-          enabled = tagDraft.isNotBlank(),
-        ) {
-          Text(stringResource(Res.string.action_add))
+        Text(
+          stringResource(Res.string.identifying_dishes_on_device),
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+    }
+
+    val tags = remember(entry.autoTags, entry.manualTags) {
+      (entry.autoTags + entry.manualTags).distinctBy(String::lowercase)
+    }
+    if (tags.isNotEmpty()) {
+      Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        tags.forEach { tag ->
+          SuggestionChip(onClick = {}, label = { Text(tag) })
         }
       }
-
-      HorizontalDivider()
-      SharedClassificationSection(
-        entry = entry,
-        currentModelVersion = entry.taggingModelVersion ?: state.modelVersion,
-        tagging = tagging,
-        onRetryClassification = { viewModel.retryClassification(entry.id) },
-      )
     }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      OutlinedTextField(
+        value = state.tagDraft,
+        onValueChange = { onAction(VisitDetailAction.ChangeTagDraft(it)) },
+        modifier = Modifier.weight(1f),
+        label = { Text(stringResource(Res.string.visit_tag_input_label)) },
+        singleLine = true,
+      )
+      Spacer(Modifier.width(8.dp))
+      TextButton(
+        onClick = { onAction(VisitDetailAction.AddManualTag) },
+        enabled = state.tagDraft.isNotBlank(),
+      ) {
+        Text(stringResource(Res.string.action_add))
+      }
+    }
+
+    HorizontalDivider()
+    SharedClassificationSection(
+      state = ClassificationSectionState(
+        entry = entry,
+        currentModelVersion = state.modelVersion,
+        tagging = state.tagging,
+      ),
+      onRetryClassification = { onAction(VisitDetailAction.RetryClassification) },
+    )
   }
 }
 
@@ -265,7 +333,7 @@ internal fun VisitDetailPlaceholder(modifier: Modifier = Modifier) {
       Text("☕", style = MaterialTheme.typography.displayMedium)
       Text(stringResource(Res.string.detail_placeholder_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
       Text(
-        "Pick a visit from the log to inspect its photos, dish tags, and on-device classification runs.",
+        stringResource(Res.string.detail_placeholder_subtitle),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,

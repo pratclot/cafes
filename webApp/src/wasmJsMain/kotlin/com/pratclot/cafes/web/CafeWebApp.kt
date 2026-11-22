@@ -53,8 +53,11 @@ import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import com.pratclot.cafes.core.ui.generated.resources.Res
 import com.pratclot.cafes.core.ui.generated.resources.action_add_photo_short
+import com.pratclot.cafes.core.ui.generated.resources.action_archive_count
 import com.pratclot.cafes.core.ui.generated.resources.action_back_to_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_back_to_visits
 import com.pratclot.cafes.core.ui.generated.resources.action_camera
+import com.pratclot.cafes.core.ui.generated.resources.action_close
 import com.pratclot.cafes.core.ui.generated.resources.action_details
 import com.pratclot.cafes.core.ui.generated.resources.action_from_disk
 import com.pratclot.cafes.core.ui.generated.resources.action_log_short
@@ -63,15 +66,40 @@ import com.pratclot.cafes.core.ui.generated.resources.action_take_photo
 import com.pratclot.cafes.core.ui.generated.resources.action_visit_log_count
 import com.pratclot.cafes.core.ui.generated.resources.app_subtitle
 import com.pratclot.cafes.core.ui.generated.resources.app_title
+import com.pratclot.cafes.core.ui.generated.resources.archived_visits_title
+import com.pratclot.cafes.core.ui.generated.resources.cafe_moments_title
 import com.pratclot.cafes.core.ui.generated.resources.cafe_search_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.camera_fallback_hint
+import com.pratclot.cafes.core.ui.generated.resources.camera_opening
+import com.pratclot.cafes.core.ui.generated.resources.camera_paused_choosing_cafe
+import com.pratclot.cafes.core.ui.generated.resources.camera_unavailable
+import com.pratclot.cafes.core.ui.generated.resources.location_cafe_coords_accuracy
+import com.pratclot.cafes.core.ui.generated.resources.location_checking
+import com.pratclot.cafes.core.ui.generated.resources.location_coords_accuracy
+import com.pratclot.cafes.core.ui.generated.resources.location_nearby_places_choice
 import com.pratclot.cafes.core.ui.generated.resources.location_no_fresh
+import com.pratclot.cafes.core.ui.generated.resources.location_no_nearby_manual
+import com.pratclot.cafes.core.ui.generated.resources.location_not_checked
 import com.pratclot.cafes.core.ui.generated.resources.location_refresh_failed
+import com.pratclot.cafes.core.ui.generated.resources.saved_to_venue
 import com.pratclot.cafes.core.ui.generated.resources.search_label
 import com.pratclot.cafes.core.ui.generated.resources.search_placeholder
+import com.pratclot.cafes.core.ui.generated.resources.visit_log_count
+import com.pratclot.cafes.core.ui.generated.resources.visit_log_title
+import com.pratclot.cafes.core.ui.generated.resources.web_empty_archive
+import com.pratclot.cafes.core.ui.generated.resources.web_empty_log
+import com.pratclot.cafes.core.ui.generated.resources.web_empty_search
 import com.pratclot.cafes.core.ui.generated.resources.web_storage_notice
 import com.pratclot.cafes.data.CafeLogStateHolder
 import com.pratclot.cafes.data.RefreshStatusMessage
+import com.pratclot.cafes.ui.CompactLocationBarAction
+import com.pratclot.cafes.ui.CompactLocationBarState
+import com.pratclot.cafes.ui.VisitDetailsAction
+import com.pratclot.cafes.ui.VisitDetailsState
+import com.pratclot.cafes.ui.VisitEntryCardAction
+import com.pratclot.cafes.ui.VisitEntryCardState
 import com.pratclot.cafes.ui.theme.ComPratclotCafesTheme
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -129,14 +157,25 @@ internal fun CafeWebApp() {
   val cafeSearchErrorText = uiState.cafeSearchError?.let { stringResource(Res.string.cafe_search_unavailable) }
 
   val locationMessage = when {
-    uiState.refreshingLocation -> "Checking your location…"
+    uiState.refreshingLocation -> stringResource(Res.string.location_checking)
     refreshMessageText != null -> refreshMessageText
-    position == null -> "Location has not been checked yet."
-    uiState.searchingCafes -> "${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
+    position == null -> stringResource(Res.string.location_not_checked)
+    uiState.searchingCafes -> stringResource(
+      Res.string.location_coords_accuracy,
+      position.latitude.format(5),
+      position.longitude.format(5),
+      position.accuracyMeters.toInt(),
+    )
     cafeSearchErrorText != null -> cafeSearchErrorText
-    selectedCafe != null -> "${selectedCafe.name} · ${position.latitude.format(5)}, ${position.longitude.format(5)} · ±${position.accuracyMeters.toInt()} m"
-    cafes.isNotEmpty() -> "${cafes.size} nearby places need a quick choice."
-    else -> "No nearby cafes found. You can enter the name manually."
+    selectedCafe != null -> stringResource(
+      Res.string.location_cafe_coords_accuracy,
+      selectedCafe.name,
+      position.latitude.format(5),
+      position.longitude.format(5),
+      position.accuracyMeters.toInt(),
+    )
+    cafes.isNotEmpty() -> pluralStringResource(Res.plurals.location_nearby_places_choice, cafes.size, cafes.size)
+    else -> stringResource(Res.string.location_no_nearby_manual)
   }
 
   fun addPhotosToVisit(id: String) {
@@ -197,7 +236,7 @@ internal fun CafeWebApp() {
             cameraError = null
             browserStartCamera(cameraFacing) { ok, err ->
               cameraReady = ok
-              cameraError = if (ok) null else err.ifEmpty { "Camera is unavailable." }
+              cameraError = if (ok) null else err
             }
           } else {
             cameraReady = false
@@ -206,6 +245,23 @@ internal fun CafeWebApp() {
         }
         DisposableEffect(Unit) {
           onDispose { browserStopCamera() }
+        }
+
+        val onLocationAction: (CompactLocationBarAction) -> Unit = { action ->
+          when (action) {
+            CompactLocationBarAction.ToggleEditing -> editingLocation = !editingLocation
+            CompactLocationBarAction.Refresh -> stateHolder.refreshLocation()
+            is CompactLocationBarAction.SelectCafe -> {
+              stateHolder.selectCafe(action.cafe)
+              editingLocation = false
+            }
+            is CompactLocationBarAction.ChangeManualCafe -> manualCafe = action.name
+            CompactLocationBarAction.ApplyManualCafe -> {
+              stateHolder.selectManualCafe(manualCafe)
+              editingLocation = false
+            }
+            CompactLocationBarAction.AddPhotos -> pickPhotosFromDiskForNewVisit()
+          }
         }
 
         Column(
@@ -229,25 +285,16 @@ internal fun CafeWebApp() {
             }
             Spacer(Modifier.height(8.dp))
             CompactLocationBar(
-              selectedCafe = selectedCafe,
-              manualCafe = manualCafe,
-              locationMessage = locationMessage,
-              loadingLocation = loadingLocation,
-              cafes = cafes,
-              editing = editingLocation,
-              showAddPhotosAction = false,
-              onToggleEditing = { editingLocation = !editingLocation },
-              onRefresh = { stateHolder.refreshLocation() },
-              onSelectCafe = { cafe ->
-                stateHolder.selectCafe(cafe)
-                editingLocation = false
-              },
-              onManualCafeChange = { manualCafe = it },
-              onApplyManualCafe = {
-                stateHolder.selectManualCafe(manualCafe)
-                editingLocation = false
-              },
-              onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+              state = CompactLocationBarState(
+                selectedCafe = selectedCafe,
+                manualCafe = manualCafe,
+                locationMessage = locationMessage,
+                loadingLocation = loadingLocation,
+                cafes = cafes,
+                editing = editingLocation,
+                showAddPhotosAction = false,
+              ),
+              onAction = onLocationAction,
             )
             Spacer(Modifier.height(10.dp))
             val density = LocalDensity.current
@@ -277,13 +324,18 @@ internal fun CafeWebApp() {
                   horizontalAlignment = Alignment.CenterHorizontally,
                   verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                  val cameraStatusText = when (val err = cameraError) {
+                    null -> stringResource(Res.string.camera_opening)
+                    "" -> stringResource(Res.string.camera_unavailable)
+                    else -> err
+                  }
                   Text(
-                    cameraError ?: "Opening camera…",
+                    cameraStatusText,
                     color = Color(0xFFF5ECE3),
                     style = MaterialTheme.typography.bodyMedium,
                   )
                   Text(
-                    "You can still use Take photo or From disk below.",
+                    stringResource(Res.string.camera_fallback_hint),
                     color = Color(0xFFBDB1A6),
                     style = MaterialTheme.typography.bodySmall,
                   )
@@ -295,7 +347,7 @@ internal fun CafeWebApp() {
                 }
               } else if (editingLocation) {
                 Text(
-                  "Camera paused while choosing a cafe",
+                  stringResource(Res.string.camera_paused_choosing_cafe),
                   color = Color(0xFFF5ECE3),
                   style = MaterialTheme.typography.bodySmall,
                 )
@@ -314,7 +366,7 @@ internal fun CafeWebApp() {
                   verticalAlignment = Alignment.CenterVertically,
                 ) {
                   Text(
-                    "✓ Saved to ${recentSaved.venue}",
+                    stringResource(Res.string.saved_to_venue, recentSaved.venue),
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -377,7 +429,7 @@ internal fun CafeWebApp() {
               Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f)) {
                   Text(
-                    if (showArchive) "Archived visits" else "Cafe moments",
+                    stringResource(if (showArchive) Res.string.archived_visits_title else Res.string.cafe_moments_title),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                   )
@@ -390,32 +442,29 @@ internal fun CafeWebApp() {
                   Text(stringResource(Res.string.action_camera))
                 }
                 TextButton(onClick = { showArchive = !showArchive }) {
-                  Text(if (showArchive) "Visit log (${entries.size})" else "Archive (${archived.size})")
+                  Text(
+                    if (showArchive) {
+                      stringResource(Res.string.visit_log_count, entries.size)
+                    } else {
+                      stringResource(Res.string.action_archive_count, archived.size)
+                    },
+                  )
                 }
               }
               Spacer(Modifier.height(8.dp))
 
               if (!showArchive) {
                 CompactLocationBar(
-                  selectedCafe = selectedCafe,
-                  manualCafe = manualCafe,
-                  locationMessage = locationMessage,
-                  loadingLocation = loadingLocation,
-                  cafes = cafes,
-                  editing = editingLocation,
-                  showAddPhotosAction = true,
-                  onToggleEditing = { editingLocation = !editingLocation },
-                  onRefresh = { stateHolder.refreshLocation() },
-                  onSelectCafe = { cafe ->
-                    stateHolder.selectCafe(cafe)
-                    editingLocation = false
-                  },
-                  onManualCafeChange = { manualCafe = it },
-                  onApplyManualCafe = {
-                    stateHolder.selectManualCafe(manualCafe)
-                    editingLocation = false
-                  },
-                  onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+                  state = CompactLocationBarState(
+                    selectedCafe = selectedCafe,
+                    manualCafe = manualCafe,
+                    locationMessage = locationMessage,
+                    loadingLocation = loadingLocation,
+                    cafes = cafes,
+                    editing = editingLocation,
+                    showAddPhotosAction = true,
+                  ),
+                  onAction = onLocationAction,
                 )
                 Spacer(Modifier.height(8.dp))
               }
@@ -432,7 +481,15 @@ internal fun CafeWebApp() {
 
               if (matching.isEmpty()) {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                  Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
+                  Text(
+                    stringResource(
+                      when {
+                        shown.isEmpty() && showArchive -> Res.string.web_empty_archive
+                        shown.isEmpty() -> Res.string.web_empty_log
+                        else -> Res.string.web_empty_search
+                      },
+                    ),
+                  )
                 }
               } else {
                 LazyVerticalGrid(
@@ -444,25 +501,31 @@ internal fun CafeWebApp() {
                 ) {
                   gridItems(matching, key = { it.id }) { entry ->
                     VisitCard(
-                      entry = entry,
-                      archived = showArchive,
-                      showArchiveButton = true,
-                      swipeEnabled = false,
-                      tagging = entry.id in taggingIds,
-                      tagDraft = tagDrafts[entry.id].orEmpty(),
-                      onDetails = { selectedDetailsEntryId = entry.id },
-                      onTagClick = { searchQuery = it },
-                      onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
-                      onAddTag = {
-                        val tag = tagDrafts[entry.id].orEmpty().trim()
-                        if (tag.isNotEmpty()) {
-                          stateHolder.addManualTag(entry.id, tag)
-                          tagDrafts = tagDrafts - entry.id
+                      state = VisitEntryCardState(
+                        entry = entry,
+                        archived = showArchive,
+                        swipeEnabled = false,
+                        showArchiveButton = true,
+                        tagging = entry.id in taggingIds,
+                        tagDraft = tagDrafts[entry.id].orEmpty(),
+                      ),
+                      onAction = { action ->
+                        when (action) {
+                          VisitEntryCardAction.OpenDetails -> selectedDetailsEntryId = entry.id
+                          is VisitEntryCardAction.ClickTag -> searchQuery = action.tag
+                          is VisitEntryCardAction.ChangeTagDraft -> tagDrafts = tagDrafts + (entry.id to action.draft)
+                          VisitEntryCardAction.AddTag -> {
+                            val tag = tagDrafts[entry.id].orEmpty().trim()
+                            if (tag.isNotEmpty()) {
+                              stateHolder.addManualTag(entry.id, tag)
+                              tagDrafts = tagDrafts - entry.id
+                            }
+                          }
+                          VisitEntryCardAction.AddPhotos -> addPhotosToVisit(entry.id)
+                          VisitEntryCardAction.Archive -> stateHolder.archiveEntry(entry.id)
+                          VisitEntryCardAction.Restore -> stateHolder.restoreEntry(entry.id)
                         }
                       },
-                      onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = { stateHolder.archiveEntry(entry.id) },
-                      onRestore = { stateHolder.restoreEntry(entry.id) },
                     )
                   }
                 }
@@ -483,36 +546,33 @@ internal fun CafeWebApp() {
                         Text(stringResource(Res.string.action_back_to_camera))
                       }
                       Text(
-                        if (showArchive) "Archived visits" else "Visit log",
+                        stringResource(if (showArchive) Res.string.archived_visits_title else Res.string.visit_log_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                       )
                       TextButton(onClick = { showArchive = !showArchive }) {
-                        Text(if (showArchive) "Visit log (${entries.size})" else "Archive (${archived.size})")
+                        Text(
+                          if (showArchive) {
+                            stringResource(Res.string.visit_log_count, entries.size)
+                          } else {
+                            stringResource(Res.string.action_archive_count, archived.size)
+                          },
+                        )
                       }
                     }
                     if (!showArchive) {
                       CompactLocationBar(
-                        selectedCafe = selectedCafe,
-                        manualCafe = manualCafe,
-                        locationMessage = locationMessage,
-                        loadingLocation = loadingLocation,
-                        cafes = cafes,
-                        editing = editingLocation,
-                        showAddPhotosAction = true,
-                        onToggleEditing = { editingLocation = !editingLocation },
-                        onRefresh = { stateHolder.refreshLocation() },
-                        onSelectCafe = { cafe ->
-                          stateHolder.selectCafe(cafe)
-                          editingLocation = false
-                        },
-                        onManualCafeChange = { manualCafe = it },
-                        onApplyManualCafe = {
-                          stateHolder.selectManualCafe(manualCafe)
-                          editingLocation = false
-                        },
-                        onAddPhotos = ::pickPhotosFromDiskForNewVisit,
+                        state = CompactLocationBarState(
+                          selectedCafe = selectedCafe,
+                          manualCafe = manualCafe,
+                          locationMessage = locationMessage,
+                          loadingLocation = loadingLocation,
+                          cafes = cafes,
+                          editing = editingLocation,
+                          showAddPhotosAction = true,
+                        ),
+                        onAction = onLocationAction,
                       )
                     }
                     OutlinedTextField(
@@ -529,31 +589,45 @@ internal fun CafeWebApp() {
                 if (matching.isEmpty()) {
                   item(key = "mobile-log-empty") {
                     Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                      Text(when { shown.isEmpty() && showArchive -> "Nothing archived yet."; shown.isEmpty() -> "Your cafe visits will show up here."; else -> "No matching visits." })
+                      Text(
+                        stringResource(
+                          when {
+                            shown.isEmpty() && showArchive -> Res.string.web_empty_archive
+                            shown.isEmpty() -> Res.string.web_empty_log
+                            else -> Res.string.web_empty_search
+                          },
+                        ),
+                      )
                     }
                   }
                 } else {
                   items(matching, key = { it.id }) { entry ->
                     VisitCard(
-                      entry = entry,
-                      archived = showArchive,
-                      showArchiveButton = false,
-                      swipeEnabled = true,
-                      tagging = entry.id in taggingIds,
-                      tagDraft = tagDrafts[entry.id].orEmpty(),
-                      onDetails = { selectedDetailsEntryId = entry.id },
-                      onTagClick = { searchQuery = it },
-                      onTagDraft = { tagDrafts = tagDrafts + (entry.id to it) },
-                      onAddTag = {
-                        val tag = tagDrafts[entry.id].orEmpty().trim()
-                        if (tag.isNotEmpty()) {
-                          stateHolder.addManualTag(entry.id, tag)
-                          tagDrafts = tagDrafts - entry.id
+                      state = VisitEntryCardState(
+                        entry = entry,
+                        archived = showArchive,
+                        swipeEnabled = true,
+                        showArchiveButton = false,
+                        tagging = entry.id in taggingIds,
+                        tagDraft = tagDrafts[entry.id].orEmpty(),
+                      ),
+                      onAction = { action ->
+                        when (action) {
+                          VisitEntryCardAction.OpenDetails -> selectedDetailsEntryId = entry.id
+                          is VisitEntryCardAction.ClickTag -> searchQuery = action.tag
+                          is VisitEntryCardAction.ChangeTagDraft -> tagDrafts = tagDrafts + (entry.id to action.draft)
+                          VisitEntryCardAction.AddTag -> {
+                            val tag = tagDrafts[entry.id].orEmpty().trim()
+                            if (tag.isNotEmpty()) {
+                              stateHolder.addManualTag(entry.id, tag)
+                              tagDrafts = tagDrafts - entry.id
+                            }
+                          }
+                          VisitEntryCardAction.AddPhotos -> addPhotosToVisit(entry.id)
+                          VisitEntryCardAction.Archive -> stateHolder.archiveEntry(entry.id)
+                          VisitEntryCardAction.Restore -> stateHolder.restoreEntry(entry.id)
                         }
                       },
-                      onPhotos = { addPhotosToVisit(entry.id) },
-                      onArchive = { stateHolder.archiveEntry(entry.id) },
-                      onRestore = { stateHolder.restoreEntry(entry.id) },
                     )
                   }
                 }
@@ -564,8 +638,11 @@ internal fun CafeWebApp() {
           Text(stringResource(Res.string.web_storage_notice), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
         }
         if (detailsEntry != null) {
-          val onRetryClassification = {
-            stateHolder.retryClassification(detailsEntry.id)
+          val onDetailsAction: (VisitDetailsAction) -> Unit = { action ->
+            when (action) {
+              VisitDetailsAction.Close -> selectedDetailsEntryId = null
+              VisitDetailsAction.RetryClassification -> stateHolder.retryClassification(detailsEntry.id)
+            }
           }
           if (desktopLayout) {
             Dialog(onDismissRequest = { selectedDetailsEntryId = null }) {
@@ -575,21 +652,28 @@ internal fun CafeWebApp() {
                 color = MaterialTheme.colorScheme.surface,
               ) {
                 VisitDetailsContent(
-                  entry = detailsEntry,
-                  tagging = detailsEntry.id in taggingIds,
-                  onClose = { selectedDetailsEntryId = null },
-                  onRetryClassification = onRetryClassification,
+                  state = VisitDetailsState(
+                    entry = detailsEntry,
+                    currentModelVersion = BROWSER_FOOD_MODEL_VERSION,
+                    tagging = detailsEntry.id in taggingIds,
+                    showCloseButton = true,
+                    closeLabel = stringResource(Res.string.action_close),
+                  ),
+                  onAction = onDetailsAction,
                   modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
-                  fullScreen = false,
                 )
               }
             }
           } else {
             VisitDetailsScreen(
-              entry = detailsEntry,
-              tagging = detailsEntry.id in taggingIds,
-              onClose = { selectedDetailsEntryId = null },
-              onRetryClassification = onRetryClassification,
+              state = VisitDetailsState(
+                entry = detailsEntry,
+                currentModelVersion = BROWSER_FOOD_MODEL_VERSION,
+                tagging = detailsEntry.id in taggingIds,
+                showCloseButton = true,
+                closeLabel = stringResource(Res.string.action_back_to_visits),
+              ),
+              onAction = onDetailsAction,
             )
           }
         }

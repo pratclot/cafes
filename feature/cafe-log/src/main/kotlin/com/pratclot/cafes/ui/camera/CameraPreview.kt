@@ -40,11 +40,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.pratclot.cafes.core.ui.generated.resources.Res
+import com.pratclot.cafes.core.ui.generated.resources.action_enable_camera
+import com.pratclot.cafes.core.ui.generated.resources.camera_none_found
+import com.pratclot.cafes.core.ui.generated.resources.camera_permission_needed
+import com.pratclot.cafes.core.ui.generated.resources.camera_unavailable
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import org.jetbrains.compose.resources.stringResource
+
+private sealed interface CameraPreviewError {
+  data object NoCameraFound : CameraPreviewError
+  data object Unavailable : CameraPreviewError
+  data class Message(val text: String) : CameraPreviewError
+}
 
 @Composable
 fun CameraXPreview(
@@ -62,13 +74,13 @@ fun CameraXPreview(
         verticalArrangement = Arrangement.spacedBy(10.dp),
       ) {
         Text(
-          text = "Camera permission needed for live preview",
+          text = stringResource(Res.string.camera_permission_needed),
           color = Color.White,
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.SemiBold,
         )
         OutlinedButton(onClick = onRequestPermission) {
-          Text("Enable camera", color = Color.White)
+          Text(stringResource(Res.string.action_enable_camera), color = Color.White)
         }
       }
     }
@@ -79,7 +91,7 @@ fun CameraXPreview(
   val lifecycleOwner = LocalLifecycleOwner.current
   var surfaceRequest by remember { mutableStateOf<SurfaceRequest?>(null) }
   var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
-  var cameraError by remember { mutableStateOf<String?>(null) }
+  var cameraError by remember { mutableStateOf<CameraPreviewError?>(null) }
   val coordinateTransformer = remember { MutableCoordinateTransformer() }
 
   val preview = remember {
@@ -100,7 +112,7 @@ fun CameraXPreview(
         cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
         cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) -> CameraSelector.DEFAULT_FRONT_CAMERA
         else -> {
-          cameraError = "No camera found on device"
+          cameraError = CameraPreviewError.NoCameraFound
           return@LaunchedEffect
         }
       }
@@ -115,7 +127,7 @@ fun CameraXPreview(
     } catch (cancelled: CancellationException) {
       throw cancelled
     } catch (error: Exception) {
-      cameraError = error.localizedMessage ?: "Camera unavailable"
+      cameraError = error.localizedMessage?.let(CameraPreviewError::Message) ?: CameraPreviewError.Unavailable
     }
   }
 
@@ -141,7 +153,12 @@ fun CameraXPreview(
       )
     }
 
-    cameraError?.let { message ->
+    cameraError?.let { error ->
+      val message = when (error) {
+        CameraPreviewError.NoCameraFound -> stringResource(Res.string.camera_none_found)
+        CameraPreviewError.Unavailable -> stringResource(Res.string.camera_unavailable)
+        is CameraPreviewError.Message -> error.text
+      }
       Text(
         text = message,
         color = Color.White.copy(alpha = 0.85f),
