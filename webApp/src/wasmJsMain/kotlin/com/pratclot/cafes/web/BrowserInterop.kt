@@ -3,7 +3,6 @@
 package com.pratclot.cafes.web
 
 import kotlinx.browser.window
-import kotlin.js.JsModule
 import kotlin.js.JsName
 import kotlin.random.Random
 
@@ -44,15 +43,6 @@ internal fun browserRandomUuid(): String =
     "${Date.now().toLong().toString(36)}-${Random.nextLong().toULong().toString(36)}"
   }
 
-@JsModule("./browser-interop.mjs")
-internal external fun browserSavePhotoBlob(key: String, dataUrl: String, onDone: (Boolean) -> Unit)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserLoadPhotoBlob(key: String, onDone: (String) -> Unit)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserClassifyPhotos(photos: String, onComplete: (String) -> Unit)
-
 internal fun browserRequestPhotos(onComplete: (String) -> Unit) {
   browserPickImageFiles(captureCamera = false, multiple = true, onComplete = onComplete)
 }
@@ -60,34 +50,3 @@ internal fun browserRequestPhotos(onComplete: (String) -> Unit) {
 internal fun browserRequestCameraFallback(onComplete: (String) -> Unit) {
   browserPickImageFiles(captureCamera = true, multiple = false, onComplete = onComplete)
 }
-
-@JsModule("./browser-interop.mjs")
-private external fun browserPickImageFiles(
-  captureCamera: Boolean,
-  multiple: Boolean,
-  onComplete: (String) -> Unit,
-)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserStartCamera(facingMode: String, onState: (Boolean, String) -> Unit)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserStopCamera()
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserUpdateCameraBounds(
-  left: Double,
-  top: Double,
-  width: Double,
-  height: Double,
-  visible: Boolean,
-)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserCaptureVideoFrame(): String
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserRequestLocation(onResult: (Double, Double, Double, String) -> Unit)
-
-@JsModule("./browser-interop.mjs")
-internal external fun browserFindNearbyCafes(latitude: Double, longitude: Double, onResult: (String) -> Unit)
